@@ -7,7 +7,7 @@ from typing import List, Dict, Union
 
 from sklearn import tree
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, AdaBoostClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import cross_val_score
 from sdv.single_table import GaussianCopulaSynthesizer
@@ -17,13 +17,14 @@ from sklearn.metrics import confusion_matrix#
 import shap
 
 # Declare global variable for type hints:
-ModelType = Union[DecisionTreeClassifier, RandomForestClassifier, GradientBoostingClassifier]
-EnsembleModelType = Union[RandomForestClassifier, GradientBoostingClassifier]
+ModelType = Union[DecisionTreeClassifier, RandomForestClassifier, GradientBoostingClassifier, AdaBoostClassifier]
+EnsembleModelType = Union[RandomForestClassifier, GradientBoostingClassifier, AdaBoostClassifier]
 
 # Abbrevations:
 # DecisionTreeClassifier = dtc
 # RandomForestClassifier = rfc
 # GradientBoostingClassifier = gbc
+# AdaBoostClassifier = abc
 
 class LoadData:
     def __init__(self):
@@ -94,12 +95,13 @@ class DataPreparation:
         try:
             irrelevant_columns = ["PassengerId", "Name", "Ticket", "Cabin"]
             self.df = self.df.drop(irrelevant_columns, axis= 1)
+        except:
+            pass
 
+        if "Sex" in self.df.columns:
             # Convert categorical data (male/female) to binary:
             mapping = {'female': 0, 'male': 1}
             self.df["Sex"] = self.df["Sex"].map(mapping)
-        except:
-            pass
 
         # One hot encode "Embarked":
         embarked_one_hot_encoded = pd.get_dummies(self.df["Embarked"], prefix= "Embarked", dtype= int)
@@ -158,7 +160,7 @@ class DataPreparation:
 
     def train_val_test_dataset(self) -> Dict[str, List]:
         y = self.df[self.target_col]
-        X = self.df([self.target_col], axis= 1)
+        X = self.df.drop([self.target_col], axis= 1)
         X_training, X_test, y_training, y_test = train_test_split(
             X, y, test_size=0.2, random_state=42, stratify= y)
 
@@ -172,14 +174,15 @@ class DataPreparation:
         }
         return prepared_data
 
-# Maybe include SHAP ?! (to get the feature importances)
 class ModelTrainingAndEvaluation:
     def __init__(self, prepared_data: Dict):
         self.prepared_data = prepared_data
 
+    #------------------------Pure model training-----------------------#
+
     def train_basic_decision_tree(self, depth: int = None, metric: str = "gini"):
         X_train, y_train = self.prepared_data["train"]
-        clf_basic_tree = DecisionTreeClassifier(max_depth= depth, criterion= metric)
+        clf_basic_tree = DecisionTreeClassifier(max_depth= depth, criterion= metric, random_state= 42)
         clf_basic_tree.fit(X_train, y_train)
         return clf_basic_tree
     
@@ -192,12 +195,30 @@ class ModelTrainingAndEvaluation:
         clf_random_forest.fit(X_train, y_train)
         return clf_random_forest
     
+    # Not sure which boosted tree method will be used ultimately !?
     def train_boosted_tree(self, loss: str = "log_loss", learning_rate: float = 0.1, n_estimators: int = 100, depth: int = None, metric: str = "squared_error"):
         X_train, y_train = self.prepared_data["train"]
-        clf_boosted_tree = GradientBoostingClassifier(loss= loss, learning_rate= learning_rate, n_estimators= n_estimators, criterion= metric, max_depth= depth)
+        clf_boosted_tree = GradientBoostingClassifier(loss= loss, 
+                                                      learning_rate= learning_rate, 
+                                                      n_estimators= n_estimators, 
+                                                      criterion= metric, max_depth= depth, 
+                                                      random_state= 42)
         clf_boosted_tree.fit(X_train, y_train)
         return clf_boosted_tree
     
+    def train_ada_boost(self, n_estimators: int, learning_rate: float, metric: str, depth: int = None):
+        X_train, y_train = self.prepared_data["train"]
+        weak_learner = DecisionTreeClassifier(max_depth= depth, criterion= metric, random_state= 42)
+        clf_ada_boost = AdaBoostClassifier(estimator= weak_learner, n_estimators= n_estimators, learning_rate= learning_rate, random_state=42)
+        clf_ada_boost.fit(X_train, y_train)
+        return clf_ada_boost
+    
+    #-------------------------Evaluation---------------------------# 
+    def evaluate_the_training_data(self, model: ModelType):
+        X_train, y_train = self.prepared_data["train"]
+        train_score = model.score(X_train, y_train)
+        return train_score
+        
     def evaluate_with_test_dataset(self, model: ModelType):
         X_test, y_test = self.prepared_data["test"]
         accuracy = model.score(X_test, y_test)
@@ -216,7 +237,6 @@ class ModelTrainingAndEvaluation:
         ax.set_ylabel("Ground truth")  
         return fig  
 
-    # Let them visualize a normal tree:
     def visualize_tree_dtc(self, model: DecisionTreeClassifier) -> Figure:
         """
         Visualizes the inputed tree model. It only shows the first four layers due to readability.
@@ -226,27 +246,30 @@ class ModelTrainingAndEvaluation:
         fig, ax = plt.subplots()
         tree.plot_tree(model, feature_names= X_train.columns, max_depth= 3, fontsize=4, ax = ax)
         return fig
-
+    
     # Probabely won't be used...
-    def visualize_tree_ensemble(self, model: EnsembleModelType, n: int):
-        estimator_n = model.estimator_[n]
+    def visualize_tree_ensemble(self, model: EnsembleModelType, n: int) -> Figure:
+        estimator_n = model.estimators_[n]
         X_train, y_train = self.prepared_data["train"]
         X_train: pd.DataFrame
         fig, ax = plt.subplots()
-        tree.plot_tree(estimator_n, feature_names= X_train.columns, fontsize=5, ax = ax)
+        tree.plot_tree(estimator_n, feature_names= X_train.columns, max_depth= 3, fontsize=4, ax = ax)
         return fig
     
-    # Shap function does not exactly work as intended
-    def shap_plot(self, model: ModelType):
-        X_train, y_train = self.prepared_data["train"]
-        explainer = shap.Explainer(model, X_train)
+    def shap_plot(self, model: ModelType) -> Figure:
+        X_train, y_train = self.prepared_data["train"]  
+        explainer = shap.Explainer(model, X_train)  
         shap_values = explainer(X_train)
-        shap.summary_plot(shap_values, features = X_train, class_inds = [0])
-        plt.show()
+
+        # Summary plot for class 1 (positive class); but the chart would be the same for the other class due to the binary classification
+        plt.close('all') # close all plots that already exist...
+        shap.summary_plot(shap_values[:, :, 1], X_train, plot_type = "bar")
+        fig = plt.gcf()
+        return fig
     
     #------------------k fold validation------------------------------#
     def k_fold_eval_dtc(self, X, y, depth: int = None, metric: str = "gini") -> pd.DataFrame:
-        dtc_model = DecisionTreeClassifier(max_depth= depth, criterion= metric)
+        dtc_model = DecisionTreeClassifier(max_depth= depth, criterion= metric, random_state= 42)
         scores = cross_val_score(dtc_model, X, y, cv = 5)
         output = {
             "Bester Wert": [scores.max()],
@@ -272,8 +295,7 @@ class ModelTrainingAndEvaluation:
 
 class ModelTuning:
     # Maybe only the most important ones?!
-    def __init__(self, model: ModelType, prepared_data: Dict):
-        self.model = model
+    def __init__(self, prepared_data: Dict):
         self.prepared_data = prepared_data
     
     # All tuning methods for DecisionTreeClassifier:
@@ -291,7 +313,7 @@ class ModelTuning:
         }
 
         for depth in range(1, 100):
-            clf_model = DecisionTreeClassifier(max_depth= depth, criterion= metric)
+            clf_model = DecisionTreeClassifier(max_depth= depth, criterion= metric, random_state= 42)
             clf_model.fit(X_train, y_train)
 
             if clf_model.get_depth() < depth:
@@ -306,19 +328,61 @@ class ModelTuning:
             pruning["val_accuracy"].append(val_score)
         return pruning
     
-    def calculate_optimal_metric_dtc(self):
-        pass
+    def calculate_optimal_metric_dtc(self, depth: int):
+        X_train, y_train = self.prepared_data["train"]
+        X_val, y_val = self.prepared_data["val"]
+        
+        pruning = {
+            "metric": [],
+            "train_accuracy": [],
+            "val_accuracy": [],
+        }
 
-    def visualize_optimal_depth_dtc(self):
-        pass
+        possible_metrics = ['gini', 'entropy', 'log_loss']
 
-    def get_optimal_depth_dtc(self, pruning: Dict) -> int:
-        df_pruning = pd.DataFrame(pruning)
-        max_val_score = df_pruning["val_accuracy"].max()
-        optimal_depth_index = df_pruning[df_pruning["val_accuracy"] == max_val_score].index
+        for metric in possible_metrics:
+            clf_model = DecisionTreeClassifier(max_depth= depth, criterion= metric, random_state= 42)
+            clf_model.fit(X_train, y_train)
 
-        optimal_depth = df_pruning.loc[optimal_depth_index[0], "depth"]
-        return optimal_depth
+            train_score = clf_model.score(X_train, y_train)
+            val_score = clf_model.score(X_val, y_val)
+
+            pruning["metric"].append(metric)
+            pruning["train_accuracy"].append(train_score)
+            pruning["val_accuracy"].append(val_score)
+        return pruning
+    
+    def optimal_metric_plot_dtc(self, depth: int) -> Figure:
+        metric_pruning = self.calculate_optimal_metric_dtc(depth= depth)
+        # Create the plot:
+        fig, ax = plt.subplots()
+        ax.plot(metric_pruning["metric"], metric_pruning["train_accuracy"], c= "r", marker = "o", label="Training Accuracy")
+        ax.plot(metric_pruning["metric"], metric_pruning["val_accuracy"], c= "b", marker = "o", label = "Validation Accuracy")
+
+        # Make the plot more descriptive:
+        ax.grid(visible= True)
+        ax.set_xlabel("Splitting Criterion")  
+        ax.set_ylabel("Accuracy")
+        ax.set_title("Model Accuracy vs Splitting Criterion")
+        ax.legend()
+        return fig
+    
+    def optimal_depth_dtc_plot(self, metric: str) -> Figure:
+        depth_pruning = self.calculate_optimal_depth_dtc(metric= metric)
+
+        # Create the plot:
+        fig, ax = plt.subplots()
+        ax.scatter(x = depth_pruning["depth"], y = depth_pruning["train_accuracy"], c= "r", label="Training Accuracy")
+        ax.scatter(x = depth_pruning["depth"], y = depth_pruning["val_accuracy"], c= "b", label = "Validation Accuracy")
+        ax.grid(visible= True)
+        ax.set_xticks(range(1, depth_pruning["depth"][-1] + 1))
+
+        # Make the plot more descriptive:
+        ax.set_xlabel("Tree Depth")  
+        ax.set_ylabel("Accuracy")
+        ax.set_title("Model Accuracy vs Tree Depth")
+        ax.legend()
+        return fig
     
     # Tuning methods for RandomForestClassifier: (n_estimators, critereon)
 
@@ -334,8 +398,16 @@ if __name__ == "__main__":
     prepared_data = data_prep.train_test_datset()
 
     training = ModelTrainingAndEvaluation(prepared_data)
-    dtc = training.train_basic_decision_tree(depth= 3)
-    training.shap_plot(dtc)
+    random_forest_model = training.train_random_forest(100, 3, "gini")
+    estimator_n = random_forest_model.estimators_[3]
+    # tuning = ModelTuning(prepared_data)
+    # #fig = tuning.optimal_depth_dtc_plot(metric = "gini")
+    # fig = tuning.optimal_metric_plot_dtc(depth = 3)
+    # plt.show()
+
+    # training = ModelTrainingAndEvaluation(prepared_data)
+    # dtc = training.train_basic_decision_tree(depth= 3)
+    # training.shap_plot(dtc)
     # score = training.evaluate_with_test_dataset(dtc)
     # print("Accuracy of the model:", score)
     # fig = training.create_heatmap(dtc)
