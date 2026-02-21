@@ -10,10 +10,8 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, AdaBoostClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import cross_val_score
-from sdv.single_table import GaussianCopulaSynthesizer
-from sdv.metadata import Metadata
 import seaborn as sns
-from sklearn.metrics import confusion_matrix#
+from sklearn.metrics import confusion_matrix
 import shap
 
 # Declare global variable for type hints:
@@ -26,6 +24,9 @@ EnsembleModelType = Union[RandomForestClassifier, GradientBoostingClassifier, Ad
 # GradientBoostingClassifier = gbc
 # AdaBoostClassifier = abc
 
+# Unclear what to do about the randomness factor:
+# random.seed(42), maybe fix it by using it in the init part of the function?!
+
 class LoadData:
     def __init__(self):
         pass
@@ -34,21 +35,18 @@ class LoadData:
         df = pd.read_csv(r"data\Titanic-Dataset.csv")
         return df
     
-    def synthetic_data(self, num_rows: int) -> pd.DataFrame:
+    def normal_and_random_data(self, num_rows: int) -> pd.DataFrame:
         df = self.normal_dataset()
-        relevant_columns = ["Pclass", "Sex", "Age", "SibSp", "Parch", "Fare", "Survived", "Embarked"]
+        relevant_columns = ["Survived", "Pclass", "Sex", "Age", "SibSp", "Parch", "Fare", "Embarked"]
         df = df[relevant_columns]
 
-        metadata = Metadata.detect_from_dataframe(df)
+        random_data = self.random_data(num_rows= num_rows)
+        merged_datasets: pd.DataFrame = pd.concat([df, random_data], axis = 0)
 
-        synthesizer = GaussianCopulaSynthesizer(metadata)
-        synthesizer.fit(df)
-        synthetic_data = synthesizer.sample(num_rows= num_rows)
-        return synthetic_data
+        merged_datasets = merged_datasets.sample(frac=1, random_state= 42).reset_index(drop=True)
+        return merged_datasets
     
     def random_data(self, num_rows: int) -> pd.DataFrame:
-        random.seed(42)
-        
         df_structure = {
             "Survived": [],
             "Pclass": [],
@@ -63,7 +61,7 @@ class LoadData:
         # Fully random data, no distribution preserved:
         survived_range = [0,1] # binary: survived or not survived
         pclass_range = [1, 2, 3] # there are exactly three passenger classes
-        sex_range = [0, 1] # binary: female = 0, male = 1
+        sex_range = ["male", "female"] # binary: female = 0, male = 1
         age_range = [age for age in range(0, 81)] # min max range, int steps
         sip_sp_range = [num_sib for num_sib in range(0, 9)] # number of siblings/spouses
         parch_range = [parch for parch in range(0, 7)] #number of parents/ children on board
@@ -79,8 +77,9 @@ class LoadData:
             df_structure["Parch"].append(random.choice(parch_range))
             df_structure["Fare"].append(random.choice(fare_range))
             df_structure["Embarked"].append(random.choice(embarked_range))
-        return pd.DataFrame(df_structure)
-
+        
+        df = pd.DataFrame(df_structure)
+        return df
 
 class DataPreparation:
     def __init__(self, data: pd.DataFrame):
@@ -135,7 +134,7 @@ class DataPreparation:
         median_age = self.df["Age"].median()
         self.df = self.df.fillna(value= median_age)
 
-    def drop_missing_values(self) -> None:
+    def drop_missing_values(self) -> None: # <-- Somehow, this removes all the rows when data is generated randomely...
         self.df.dropna(inplace = True, axis= 0)
     
     def X_y_dataset(self):
@@ -387,32 +386,120 @@ class ModelTuning:
     # Tuning methods for RandomForestClassifier: (n_estimators, critereon)
 
 
-    # Tuning methods for GradientBoostingClassifier: (loss, learning_rate) 
+    # Tuning methods for GradientBoostingClassifier: (loss, learning_rate)
+
+# Implement a loop that increases the number of random samples to see the impact on the tree:
+# Important: Take the selected choises of the user (= missing values, selected features, tree parameters into account...)
+# --> Is a bit tedious to implement
+
+class ShowOverfitting:
+    def __init__(self):
+        pass
+
+    def provide_dataset(self, num_rows: int, selected_features: List[str], selected_missing_method: str):
+        """
+        Returns the dataset with all the choices, the user has made before.
+        """
+        data_selection = LoadData()
+        df = data_selection.normal_and_random_data(num_rows= num_rows)
+
+        preparation = DataPreparation(data= df)
+
+        preparation.choose_columns(selected_features)
+
+        if selected_missing_method == "Fehlende Werte behalten":
+            None
+        if selected_missing_method == "Fehlende Werte entfernen":
+            preparation.drop_missing_values() # <-- bug is here, dataset gets modified somehow...
+        if selected_missing_method == "Median einsetzen":
+            preparation.impute_missing_values()
+
+        prepared_data = preparation.train_test_datset()
+
+        X_train, y_train = prepared_data["train"]
+        X_test, y_test = prepared_data["test"]
+
+        return X_train, y_train, X_test, y_test 
+
+    def calc_for_dtc(self, user_stop: int, selected_features: List[str], 
+                           selected_missing_method: str, selected_metric: str, 
+                           selected_depth: int) -> Dict[str, List]:
+                           
+        capture_data = {
+            "amount_random_data": [],
+            "train_accuracy": [],
+            "test_accuracy": []
+        }
+
+        for num_rows in range(0, user_stop + 500, 500):
+            dtc_model = DecisionTreeClassifier(criterion= selected_metric, max_depth= selected_depth)
+            X_train, y_train, X_test, y_test = self.provide_dataset(num_rows, selected_features, selected_missing_method)
+
+            dtc_model.fit(X_train, y_train)
+
+            train_score = dtc_model.score(X_train, y_train)
+            test_score = dtc_model.score(X_test, y_test)
+
+            capture_data["amount_random_data"].append(num_rows)
+            capture_data["train_accuracy"].append(train_score)
+            capture_data["test_accuracy"].append(test_score)
+        return capture_data
+    
+    def calc_for_rfc(self, user_stop: int, selected_features: List[str], 
+                           selected_missing_method: str, selected_metric: str, 
+                           selected_estimators: int, selected_depth: int) -> Dict[str, List]:
+        
+        captured_data = {
+            "amount_random_data": [],
+            "train_accuracy": [],
+            "test_accuracy": []
+        }
+
+        for num_rows in range(0, user_stop, 500):
+            rfc_model = RandomForestClassifier(n_estimators= selected_estimators, criterion= selected_metric, max_depth= selected_depth)
+
+            X_train, y_train, X_test, y_test = self.provide_dataset(num_rows, selected_features, selected_features, selected_missing_method)
+
+            train_score = rfc_model.score(X_train, y_train)
+            test_score = rfc_model.score(X_test, y_test)
+
+            captured_data["amount_random_data"].append(num_rows)
+            captured_data["train_accuracy"].append(train_score)
+            captured_data["test_accuracy"].append(test_score)
+        return captured_data
+
+    def create_plot_dtc(self, user_stop: int, selected_features: List[str], 
+                           selected_missing_method: str, selected_metric: str, 
+                           selected_depth: int):
+        
+        captured_data = self.calc_for_dtc(user_stop, selected_features, 
+                                            selected_missing_method, selected_metric, 
+                                            selected_depth)
+        
+        fig, ax = plt.subplots()
+        ax.scatter(x = captured_data["amount_random_data"], y = captured_data["train_accuracy"], c= "r", label="Training Accuracy")
+        ax.scatter(x = captured_data["amount_random_data"], y = captured_data["test_accuracy"], c= "b", label = "Test Accuracy")
+        ax.grid(visible= True)
+        ax.set_xticks(range(0, captured_data["amount_random_data"][-1] + 500, 500))
+
+        # Make the plot more descriptive:
+        ax.set_xlabel("Additional Random Data")  
+        ax.set_ylabel("Accuracy")
+        ax.set_title("Model Accuracy vs Increasingly Random Data")
+        ax.legend()
+        return fig
+
+    def create_plot_rfc(self):
+        pass
 
 if __name__ == "__main__":
-    load = LoadData()
-    data = load.normal_dataset()
-
-    data_prep = DataPreparation(data)
-    data_prep.impute_missing_values()
-    prepared_data = data_prep.train_test_datset()
-
-    training = ModelTrainingAndEvaluation(prepared_data)
-    random_forest_model = training.train_random_forest(100, 3, "gini")
-    estimator_n = random_forest_model.estimators_[3]
-    # tuning = ModelTuning(prepared_data)
-    # #fig = tuning.optimal_depth_dtc_plot(metric = "gini")
-    # fig = tuning.optimal_metric_plot_dtc(depth = 3)
-    # plt.show()
-
-    # training = ModelTrainingAndEvaluation(prepared_data)
-    # dtc = training.train_basic_decision_tree(depth= 3)
-    # training.shap_plot(dtc)
-    # score = training.evaluate_with_test_dataset(dtc)
-    # print("Accuracy of the model:", score)
-    # fig = training.create_heatmap(dtc)
-    #plt.show()
-    #training.visualize_tree_dtc(dtc)
-    pass
+    # load = LoadData()
+    # org_and_random = load.normal_and_random_data(1000)
+    # print(org_and_random.shape)
+    # print(org_and_random.describe())
+    overfit = ShowOverfitting()
+    selected_features = ['Pclass', 'Sex', 'Age', 'SibSp', 'Parch', 'Fare']
+    figure = overfit.create_plot_dtc(10000, selected_features, "Fehlende Werte entfernen", "gini", 4)
+    plt.show()
 
     

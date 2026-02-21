@@ -1,5 +1,5 @@
 import streamlit as st
-from backend import LoadData, DataPreparation, ModelTrainingAndEvaluation, ModelTuning
+from backend import LoadData, DataPreparation, ModelTrainingAndEvaluation, ModelTuning, ShowOverfitting
 
 def initialize_session_states() -> None:
     """
@@ -23,7 +23,8 @@ def user_selected_random_forest():
 # Tasks: 
 # Use different functions for the layers to keep the code clean and readable
 # Maybe implement caching to keep the app fast?!
-# Maybe implement, that stuff "resets" if things were changed a few steps before.
+
+# Disable all the interactive elements of the data selection/preparation once the model is trained. 
 
 
 if __name__ == "__main__":
@@ -40,6 +41,9 @@ if __name__ == "__main__":
     if "model_trained" not in st.session_state:
         st.session_state["model_trained"] = False
     
+    if "activate_additional_feature" not in st.session_state:
+        st.session_state["activate_additional_feature"] = False
+    
 
     # Start application:
     st.title("Entscheidungsbäume Playground")
@@ -47,7 +51,7 @@ if __name__ == "__main__":
 
     #-------------------User selects the dataset--------------------------#
     selected_dataset = st.selectbox(label = "Wähle die Art der Daten aus, mit denen du experimentiren möchtest.", 
-                                    options= ["Original Datensatz", "Augmentierter Datensatz","Zufälliger Datensatz"], 
+                                    options= ["Original Datensatz", "Zufälliger Datensatz", "Original + Zufällig"], 
                                     index = None)
 
     #-------Pases if a dataset was selected--------#
@@ -63,12 +67,13 @@ if __name__ == "__main__":
             st.session_state["dataset_is_selected"] = True
         else:
             #------------User can decide how many rows of data he wants-----#
-            num_of_rows = st.number_input("Wähle die Anzahl an Reihen des Datensatzes", min_value= 0, value= None, step = 1)
+            num_of_rows = st.number_input("Wähle die Anzahl an zufällig generierten Reihen des Datensatzes", min_value= 0, value= None, step = 1)
 
             #------------Only passes if the number of rows was specified----#
             if num_of_rows is not None:
-                if selected_dataset == "Augmentierter Datensatz":
-                    df = data_selection.synthetic_data(num_rows= num_of_rows)
+                if selected_dataset == "Original + Zufällig":
+                    df = data_selection.normal_and_random_data(num_rows= num_of_rows)
+                    st.session_state["activate_additional_feature"] = True # <-- activates a special feature after model training
                 if selected_dataset == "Zufälliger Datensatz":
                     df = data_selection.random_data(num_rows= num_of_rows)
                 st.success("Der Datensatz wurde erfolgreich ausgewählt!")
@@ -108,20 +113,20 @@ if __name__ == "__main__":
                     data_is_ready = False
 
                     st.info("Es existieren fehlende Werte in der Spalte Age!")
-                    selected_method = st.selectbox(label= "Wähle eine Methode mit den fehlenden Wetren umzugehen", 
-                                                options= ["Fehlende Werte behalten", "Fehlende Werte entfernen", "Median einsetzen"], 
-                                                index = None)
+                    selected_missing_method = st.selectbox(label= "Wähle eine Methode mit den fehlenden Wetren umzugehen", 
+                                                            options= ["Fehlende Werte behalten", "Fehlende Werte entfernen", "Median einsetzen"], 
+                                                            index = None)
 
-                    if selected_method is not None:
-                        if selected_method == "Fehlende Werte behalten":
+                    if selected_missing_method is not None:
+                        if selected_missing_method == "Fehlende Werte behalten":
                             pass # Just do nothing
-                        elif selected_method == "Fehlende Werte entfernen":
+                        elif selected_missing_method == "Fehlende Werte entfernen":
                             rows_before = preparation.df.shape[0]
                             preparation.drop_missing_values()
                             rows_after = preparation.df.shape[0]
                             notification = f"{rows_before - rows_after} Reihen wurden entfernt."
                             st.info(notification)
-                        elif selected_method == "Median einsetzen":
+                        elif selected_missing_method == "Median einsetzen":
                             preparation.impute_missing_values()
                         
                         data_is_ready = True
@@ -220,7 +225,20 @@ if __name__ == "__main__":
                                         if selected_hyperparam == "Splitting Metric":
                                             st.info("Die anderen Hyperparameter werden vom Training übernommen.")
                                             fig = tuning.optimal_metric_plot_dtc(depth = selected_depth)
-                                            st.pyplot(fig= fig)                      
+                                            st.pyplot(fig= fig)
+
+                                if st.session_state["activate_additional_feature"]:
+                                    with st.expander("Performance mit Erhöhung des Anteils der zufälligen Daten"):
+                                        # Is capped at 10000:
+                                        # Don't use a user input -> use a selecter with steps of 500 or so...
+                                        stop_range = [i for i in range(0, 10500, 500)]
+                                        user_stop = st.selectbox("Wähle die Maximale Anzahl an zusätzlichen zufälligen Daten", 
+                                                                 options= stop_range, index= None)
+                                        if user_stop is not None:
+                                            overfitting = ShowOverfitting()
+                                            fig = overfitting.create_plot_dtc(user_stop, selected_features, selected_missing_method, 
+                                                                              selected_metric, selected_depth)
+                                            st.pyplot(fig)
                         
                         #------------------------Training of the Random Forest-----------------------------#
                         if st.session_state["selected_model"] == "rfc":
