@@ -41,6 +41,9 @@ if __name__ == "__main__":
     if "model_trained" not in st.session_state:
         st.session_state["model_trained"] = False
     
+    if "disable_data_functionalities" not in st.session_state:
+        st.session_state["disable_data_functionalities"] = False
+    
     if "activate_additional_feature" not in st.session_state:
         st.session_state["activate_additional_feature"] = False
     
@@ -52,7 +55,7 @@ if __name__ == "__main__":
     #-------------------User selects the dataset--------------------------#
     selected_dataset = st.selectbox(label = "Wähle die Art der Daten aus, mit denen du experimentiren möchtest.", 
                                     options= ["Original Datensatz", "Zufälliger Datensatz", "Original + Zufällig"], 
-                                    index = None)
+                                    index = None, disabled= st.session_state["disable_data_functionalities"])
 
     #-------Pases if a dataset was selected--------#
     if selected_dataset is not None:
@@ -67,13 +70,15 @@ if __name__ == "__main__":
             st.session_state["dataset_is_selected"] = True
         else:
             #------------User can decide how many rows of data he wants-----#
-            num_of_rows = st.number_input("Wähle die Anzahl an zufällig generierten Reihen des Datensatzes", min_value= 0, value= None, step = 1)
+            num_of_rows = st.number_input("Wähle die Anzahl an zufällig generierten Reihen des Datensatzes", 
+                                          min_value= 0, value= None, step = 1, disabled= st.session_state["disable_data_functionalities"])
 
             #------------Only passes if the number of rows was specified----#
             if num_of_rows is not None:
                 if selected_dataset == "Original + Zufällig":
                     df = data_selection.normal_and_random_data(num_rows= num_of_rows)
                     st.session_state["activate_additional_feature"] = True # <-- activates a special feature after model training
+
                 if selected_dataset == "Zufälliger Datensatz":
                     df = data_selection.random_data(num_rows= num_of_rows)
                 st.success("Der Datensatz wurde erfolgreich ausgewählt!")
@@ -95,10 +100,12 @@ if __name__ == "__main__":
 
             #-------------------Let the user choose the Features------------#
             default_features = [feature for feature in optimal_features if feature in available_features]
-            selected_features = st.multiselect("Wähle Features für das Training:", options= available_features, default= default_features)
+            selected_features = st.multiselect("Wähle Features für das Training:", 
+                                               options= available_features, default= default_features, 
+                                               disabled= st.session_state["disable_data_functionalities"])
 
             # Save this in the session state
-            if st.button("Auswahl bestätigen"):
+            if st.button("Auswahl bestätigen", disabled= st.session_state["disable_data_functionalities"]):
                 st.session_state["features_confirmed"] = True
             
             #--------------Only passes if the features are selected--------#
@@ -115,7 +122,7 @@ if __name__ == "__main__":
                     st.info("Es existieren fehlende Werte in der Spalte Age!")
                     selected_missing_method = st.selectbox(label= "Wähle eine Methode mit den fehlenden Wetren umzugehen", 
                                                             options= ["Fehlende Werte behalten", "Fehlende Werte entfernen", "Median einsetzen"], 
-                                                            index = None)
+                                                            index = None, disabled= st.session_state["disable_data_functionalities"])
 
                     if selected_missing_method is not None:
                         if selected_missing_method == "Fehlende Werte behalten":
@@ -159,6 +166,9 @@ if __name__ == "__main__":
                     
                     #------------------------Pases if a model was selected-------------------------#
                     if st.session_state["selected_model"] is not None:
+                        # Maybe introduce a new session state vraible here:
+                        st.session_state["disable_data_functionalities"] = True
+
                         # Initialize the class:
                         training = ModelTrainingAndEvaluation(prepared_data)
 
@@ -179,7 +189,7 @@ if __name__ == "__main__":
                                 training_accuracy = training.evaluate_the_training_data(model = trained_model)
                                 test_accuracy = training.evaluate_with_test_dataset(model = trained_model)
 
-                                st.session_state["model_trained"] = True
+                                st.session_state["model_trained"] = True # <-- should rerun immediately to disable the data selection.
                                 
                                 st.write(f"Die Genauigkeit des Decision Trees mit den Trainings Daten beträgt: {training_accuracy:.3f}")
                                 st.write(f"Die Genauigkeit des Decision Trees mit den Test Daten beträgt: {test_accuracy:.3f}") # round after three digits.

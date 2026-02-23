@@ -13,6 +13,7 @@ from sklearn.model_selection import cross_val_score
 import seaborn as sns
 from sklearn.metrics import confusion_matrix
 import shap
+from xgboost import XGBClassifier
 
 # Declare global variable for type hints:
 ModelType = Union[DecisionTreeClassifier, RandomForestClassifier, GradientBoostingClassifier, AdaBoostClassifier]
@@ -21,8 +22,7 @@ EnsembleModelType = Union[RandomForestClassifier, GradientBoostingClassifier, Ad
 # Abbrevations:
 # DecisionTreeClassifier = dtc
 # RandomForestClassifier = rfc
-# GradientBoostingClassifier = gbc
-# AdaBoostClassifier = abc
+# AdaBoostClassifier = gbc 
 
 # Unclear what to do about the randomness factor:
 # random.seed(42), maybe fix it by using it in the init part of the function?!
@@ -69,6 +69,8 @@ class LoadData:
         embarked_range = ["S", "C", "Q"]
 
         for i in range(num_rows):
+            random.seed(i)
+
             df_structure["Survived"].append(random.choice(survived_range))
             df_structure["Pclass"].append(random.choice(pclass_range))
             df_structure["Sex"].append(random.choice(sex_range))
@@ -194,23 +196,19 @@ class ModelTrainingAndEvaluation:
         clf_random_forest.fit(X_train, y_train)
         return clf_random_forest
     
-    # Not sure which boosted tree method will be used ultimately !?
-    def train_boosted_tree(self, loss: str = "log_loss", learning_rate: float = 0.1, n_estimators: int = 100, depth: int = None, metric: str = "squared_error"):
-        X_train, y_train = self.prepared_data["train"]
-        clf_boosted_tree = GradientBoostingClassifier(loss= loss, 
-                                                      learning_rate= learning_rate, 
-                                                      n_estimators= n_estimators, 
-                                                      criterion= metric, max_depth= depth, 
-                                                      random_state= 42)
-        clf_boosted_tree.fit(X_train, y_train)
-        return clf_boosted_tree
-    
     def train_ada_boost(self, n_estimators: int, learning_rate: float, metric: str, depth: int = None):
         X_train, y_train = self.prepared_data["train"]
         weak_learner = DecisionTreeClassifier(max_depth= depth, criterion= metric, random_state= 42)
         clf_ada_boost = AdaBoostClassifier(estimator= weak_learner, n_estimators= n_estimators, learning_rate= learning_rate, random_state=42)
         clf_ada_boost.fit(X_train, y_train)
         return clf_ada_boost
+    
+    ### Maybe implement this one; only if it outperforms the other trees notabely...
+    def train_xgboost(self):
+        X_train, y_train = self.prepared_data["train"]
+        xgboost_model = XGBClassifier(n_estimators=2, max_depth=2, learning_rate=1, objective='binary:logistic')
+        xgboost_model.fit(X_train, y_train)
+        return xgboost_model
     
     #-------------------------Evaluation---------------------------# 
     def evaluate_the_training_data(self, model: ModelType):
@@ -290,15 +288,23 @@ class ModelTrainingAndEvaluation:
         }
         return pd.DataFrame(output)
     
-    # Add the boosted tree...
-
+    def k_fold_eval_btc(self, X, y, learning_rate: float, n_estimators: int, depth: int, metric: str):
+        weak_learner = DecisionTreeClassifier(max_depth= depth, criterion= metric, random_state= 42)
+        clf_ada_boost = AdaBoostClassifier(estimator= weak_learner, n_estimators= n_estimators, learning_rate= learning_rate, random_state=42)
+        scores = cross_val_score(clf_ada_boost, X, y, cv = 5)
+        output = {
+            "Bester Wert": [scores.max()],
+            "Schlechtester Wert": [scores.min()],
+            "Durchschnittlicher Wert": [scores.mean()]
+        }
+        return pd.DataFrame(output)
+    
 class ModelTuning:
-    # Maybe only the most important ones?!
     def __init__(self, prepared_data: Dict):
         self.prepared_data = prepared_data
     
-    # All tuning methods for DecisionTreeClassifier:
-    def calculate_optimal_depth_dtc(self, metric: str = "gini"):
+    #---------------Calculate Decision Tree Classifier hyperparameter tuning---------------------#
+    def calculate_optimal_depth_dtc(self, metric: str) -> Dict[str, List]:
         """
         Find out the optimal depth for a normal decision tree.
         """
@@ -327,7 +333,7 @@ class ModelTuning:
             pruning["val_accuracy"].append(val_score)
         return pruning
     
-    def calculate_optimal_metric_dtc(self, depth: int):
+    def calculate_optimal_metric_dtc(self, depth: int) -> Dict[str, List]:
         X_train, y_train = self.prepared_data["train"]
         X_val, y_val = self.prepared_data["val"]
         
@@ -351,25 +357,106 @@ class ModelTuning:
             pruning["val_accuracy"].append(val_score)
         return pruning
     
-    def optimal_metric_plot_dtc(self, depth: int) -> Figure:
-        metric_pruning = self.calculate_optimal_metric_dtc(depth= depth)
-        # Create the plot:
-        fig, ax = plt.subplots()
-        ax.plot(metric_pruning["metric"], metric_pruning["train_accuracy"], c= "r", marker = "o", label="Training Accuracy")
-        ax.plot(metric_pruning["metric"], metric_pruning["val_accuracy"], c= "b", marker = "o", label = "Validation Accuracy")
+    #---------------Calculate Random Forest Classifier hyperparameter tuning---------------------#
+    def calculate_optimal_metric_rfc(self, n_estimators: int, depth: int) -> Dict[str, List]:
+        X_train, y_train = self.prepared_data["train"]
+        X_val, y_val = self.prepared_data["val"]
+        
+        pruning = {
+            "metric": [],
+            "train_accuracy": [],
+            "val_accuracy": [],
+        }
 
-        # Make the plot more descriptive:
-        ax.grid(visible= True)
-        ax.set_xlabel("Splitting Criterion")  
-        ax.set_ylabel("Accuracy")
-        ax.set_title("Model Accuracy vs Splitting Criterion")
-        ax.legend()
-        return fig
+        possible_metrics = ['gini', 'entropy', 'log_loss']
+
+        for metric in possible_metrics:
+            rfc_model = RandomForestClassifier(n_estimators= n_estimators, max_depth= depth, criterion= metric, random_state=42)
+            rfc_model.fit(X_train, y_train)
+
+            train_score = rfc_model.score(X_train, y_train)
+            val_score = rfc_model.score(X_val, y_val)
+
+            pruning["metric"].append(metric)
+            pruning["train_accuracy"].append(train_score)
+            pruning["val_accuracy"].append(val_score)
+        return pruning
     
-    def optimal_depth_dtc_plot(self, metric: str) -> Figure:
-        depth_pruning = self.calculate_optimal_depth_dtc(metric= metric)
+    def calculate_optimal_n_estimators_rfc(self, metric: str, depth: int) -> Dict[str, List]:
+        X_train, y_train = self.prepared_data["train"]
+        X_val, y_val = self.prepared_data["val"]
+        
+        pruning = {
+            "n_estimators": [],
+            "train_accuracy": [],
+            "val_accuracy": [],
+        }
 
-        # Create the plot:
+        estimator_ranges = [1] + [i for i in range(10, 110, 10)]
+        for n in estimator_ranges:
+            rfc_model = RandomForestClassifier(n_estimators= n, max_depth= depth, criterion= metric, random_state=42)
+            rfc_model.fit(X_train, y_train)
+
+            train_score = rfc_model.score(X_train, y_train)
+            val_score = rfc_model.score(X_val, y_val)
+
+            pruning["n_estimators"].append(n)
+            pruning["train_accuracy"].append(train_score)
+            pruning["val_accuracy"].append(val_score)
+        return pruning
+    
+    #---------------Calculate Ada Boost Classifier hyperparameter tuning---------------------#
+    def calculate_optimal_estimators_gbc(self, learning_rate: float, metric: str, depth: int) -> Dict[str, List]:
+        X_train, y_train = self.prepared_data["train"]
+        X_val, y_val = self.prepared_data["val"]
+        
+        pruning = {
+            "n_estimators": [],
+            "train_accuracy": [],
+            "val_accuracy": [],
+        }
+
+        estimator_ranges = [1] + [i for i in range(10, 110, 10)]
+        for n in estimator_ranges:
+            weak_learner = DecisionTreeClassifier(max_depth= depth, criterion= metric, random_state= 42)
+            clf_ada_boost = AdaBoostClassifier(estimator= weak_learner, n_estimators= n, learning_rate= learning_rate, random_state=42)
+            clf_ada_boost.fit(X_train, y_train)
+
+            train_score = clf_ada_boost.score(X_train, y_train)
+            val_score = clf_ada_boost.score(X_val, y_val)
+
+            pruning["n_estimators"].append(n)
+            pruning["train_accuracy"].append(train_score)
+            pruning["val_accuracy"].append(val_score)
+        return pruning
+    
+    def calculate_optimal_learning_rate_gbc(self, n_estimators: int, metric: str, depth: int):
+        X_train, y_train = self.prepared_data["train"]
+        X_val, y_val = self.prepared_data["val"]
+        
+        pruning = {
+            "learning_rate": [],
+            "train_accuracy": [],
+            "val_accuracy": [],
+        }
+
+        learning_rates = [0.01, 0.1, 0.5, 1.0, 1.5]
+
+        for lr in learning_rates:
+            weak_learner = DecisionTreeClassifier(max_depth= depth, criterion= metric, random_state= 42)
+            clf_ada_boost = AdaBoostClassifier(estimator= weak_learner, n_estimators= n_estimators, learning_rate= lr, random_state=42)
+            clf_ada_boost.fit(X_train, y_train)
+
+            train_score = clf_ada_boost.score(X_train, y_train)
+            val_score = clf_ada_boost.score(X_val, y_val)
+
+            pruning["learning_rate"].append(lr)
+            pruning["train_accuracy"].append(train_score)
+            pruning["val_accuracy"].append(val_score)
+        return pruning
+    
+    #-----------------------Define plot structure for different hyperparameter----------------------#
+    def optimal_depth_plot_main_frame(self, depth_pruning) -> Figure:
         fig, ax = plt.subplots()
         ax.scatter(x = depth_pruning["depth"], y = depth_pruning["train_accuracy"], c= "r", label="Training Accuracy")
         ax.scatter(x = depth_pruning["depth"], y = depth_pruning["val_accuracy"], c= "b", label = "Validation Accuracy")
@@ -383,10 +470,75 @@ class ModelTuning:
         ax.legend()
         return fig
     
-    # Tuning methods for RandomForestClassifier: (n_estimators, critereon)
+    def optimal_metric_plot_main_frame(metric_pruning) -> Figure:
+        fig, ax = plt.subplots()
+        ax.plot(metric_pruning["metric"], metric_pruning["train_accuracy"], c= "r", marker = "o", label="Training Accuracy")
+        ax.plot(metric_pruning["metric"], metric_pruning["val_accuracy"], c= "b", marker = "o", label = "Validation Accuracy")
 
+        # Make the plot more descriptive:
+        ax.grid(visible= True)
+        ax.set_xlabel("Splitting Criterion")  
+        ax.set_ylabel("Accuracy")
+        ax.set_title("Model Accuracy vs Splitting Criterion")
+        ax.legend()
+        return fig
+    
+    def optimal_estimators_main_frame(self, n_estimator_pruning) -> Figure:
+        fig, ax = plt.subplots()
+        ax.plot(n_estimator_pruning["n_estimators"], n_estimator_pruning["train_accuracy"], c= "r", marker = "o", label="Training Accuracy")
+        ax.plot(n_estimator_pruning["n_estimators"], n_estimator_pruning["val_accuracy"], c= "b", marker = "o", label = "Validation Accuracy")
+        ax.set_xticks([1] + [i for i in range(10, 110, 10)])
 
-    # Tuning methods for GradientBoostingClassifier: (loss, learning_rate)
+        # Make the plot more descriptive:
+        ax.grid(visible= True)
+        ax.set_xlabel("N estimators")  
+        ax.set_ylabel("Accuracy")
+        ax.set_title("Model Accuracy vs n estimators")
+        ax.legend()
+        return fig
+    
+    #------------ dtc final plots-------------#
+    def optimal_metric_plot_dtc(self, depth: int) -> Figure:
+        metric_pruning = self.calculate_optimal_metric_dtc(depth= depth)
+        figure = self.optimal_metric_plot_main_frame(metric_pruning)
+        return figure
+    
+    def optimal_depth_dtc_plot(self, metric: str) -> Figure:
+        depth_pruning = self.calculate_optimal_depth_dtc(metric= metric)
+        figure = self.optimal_depth_plot_main_frame(depth_pruning)
+        return figure
+    
+    #----------- rfc final plots--------------#
+    def optimal_metric_plot_rfc(self, n_estimators: int, depth: int) -> Figure:
+        metric_pruning = self.calculate_optimal_metric_rfc(n_estimators, depth)
+        figure = self.optimal_metric_plot_main_frame(metric_pruning)
+        return figure
+    
+    def optimal_n_estimators_plot_rfc(self, metric: str, depth: int) -> Figure:
+        n_estimators_pruning = self.calculate_optimal_n_estimators_rfc(metric, depth)
+        figure = self.optimal_estimators_main_frame(n_estimators_pruning)
+        return figure
+    
+    #-------------gbc final plots--------------#
+    def optimal_n_estimators_plot_gbc(self, learning_rate: float, metric: str, depth: int):
+        n_estimators_pruning = self.calculate_optimal_estimators_gbc(learning_rate, metric, depth)
+        figure = self.optimal_estimators_main_frame(n_estimators_pruning)
+        return figure
+    
+    def optimal_learning_rate_plot_gbc(self, n_estimators: int, metric: str, depth: int):
+        lr_pruning = self.calculate_optimal_learning_rate_gbc(n_estimators, metric, depth)
+        fig, ax = plt.subplots()
+        ax.plot(lr_pruning["learning_rate"], lr_pruning["train_accuracy"], c= "r", marker = "o", label="Training Accuracy")
+        ax.plot(lr_pruning["learning_rate"], lr_pruning["val_accuracy"], c= "b", marker = "o", label = "Validation Accuracy")
+        ax.set_xticks([0.01, 0.1, 0.5, 1.0, 1.5])
+
+        # Make the plot more descriptive:
+        ax.grid(visible= True)
+        ax.set_xlabel("Learning Rate")  
+        ax.set_ylabel("Accuracy")
+        ax.set_title("Model Accuracy vs Learning Rate")
+        ax.legend()
+        return fig
 
 # Implement a loop that increases the number of random samples to see the impact on the tree:
 # Important: Take the selected choises of the user (= missing values, selected features, tree parameters into account...)
@@ -423,7 +575,7 @@ class ShowOverfitting:
 
     def calc_for_dtc(self, user_stop: int, selected_features: List[str], 
                            selected_missing_method: str, selected_metric: str, 
-                           selected_depth: int) -> Dict[str, List]:
+                           selected_depth: int | None) -> Dict[str, List]:
                            
         capture_data = {
             "amount_random_data": [],
@@ -467,15 +619,32 @@ class ShowOverfitting:
             captured_data["train_accuracy"].append(train_score)
             captured_data["test_accuracy"].append(test_score)
         return captured_data
+    
+    def calc_for_gbc(self, user_stop: int, selected_features: List[str], 
+                           selected_missing_method: str, selected_learning_rate: float, selected_metric: str, 
+                           selected_estimators: int, selected_depth: int):
+        captured_data = {
+            "amount_random_data": [],
+            "train_accuracy": [],
+            "test_accuracy": []
+        }
 
-    def create_plot_dtc(self, user_stop: int, selected_features: List[str], 
-                           selected_missing_method: str, selected_metric: str, 
-                           selected_depth: int):
-        
-        captured_data = self.calc_for_dtc(user_stop, selected_features, 
-                                            selected_missing_method, selected_metric, 
-                                            selected_depth)
-        
+        for num_rows in range(0, user_stop, 500):
+            weak_learner = DecisionTreeClassifier(max_depth= selected_depth, criterion= selected_metric, random_state= 42)
+            clf_ada_boost = AdaBoostClassifier(estimator= weak_learner, n_estimators= selected_estimators, 
+                                               learning_rate= selected_learning_rate, random_state=42)
+
+            X_train, y_train, X_test, y_test = self.provide_dataset(num_rows, selected_features, selected_features, selected_missing_method)
+
+            train_score = clf_ada_boost.score(X_train, y_train)
+            test_score = clf_ada_boost.score(X_test, y_test)
+
+            captured_data["amount_random_data"].append(num_rows)
+            captured_data["train_accuracy"].append(train_score)
+            captured_data["test_accuracy"].append(test_score)
+        return captured_data
+    
+    def plot_main_frame(self, captured_data):
         fig, ax = plt.subplots()
         ax.scatter(x = captured_data["amount_random_data"], y = captured_data["train_accuracy"], c= "r", label="Training Accuracy")
         ax.scatter(x = captured_data["amount_random_data"], y = captured_data["test_accuracy"], c= "b", label = "Test Accuracy")
@@ -489,17 +658,45 @@ class ShowOverfitting:
         ax.legend()
         return fig
 
-    def create_plot_rfc(self):
-        pass
+    def create_plot_dtc(self, user_stop: int, selected_features: List[str], 
+                           selected_missing_method: str, selected_metric: str, 
+                           selected_depth: int):
+        
+        captured_data = self.calc_for_dtc(user_stop, selected_features, 
+                                            selected_missing_method, selected_metric, 
+                                            selected_depth)
+        
+        figure = self.plot_main_frame(captured_data)
+        return figure
+
+    def create_plot_rfc(self, user_stop: int, selected_features: List[str], 
+                           selected_missing_method: str, selected_metric: str, 
+                           selected_estimators: int, selected_depth: int) -> Figure:
+        
+        captured_data = self.calc_for_rfc(user_stop, selected_features, selected_missing_method,
+                                          selected_metric, selected_estimators, selected_depth)
+        figure = self.plot_main_frame(captured_data)
+        return figure
+    
+    def create_plot_btc(self, user_stop: int, selected_features: List[str], 
+                        selected_missing_method: str, selected_learning_rate: float, selected_metric: str, 
+                        selected_estimators: int, selected_depth: int) -> Figure:
+        
+        captured_data = self.calc_for_gbc(user_stop, selected_features, selected_missing_method, 
+                                          selected_learning_rate, selected_metric, selected_estimators, selected_depth)
+        figure = self.plot_main_frame(captured_data)
+        return figure      
 
 if __name__ == "__main__":
+    pass
     # load = LoadData()
     # org_and_random = load.normal_and_random_data(1000)
     # print(org_and_random.shape)
     # print(org_and_random.describe())
+
     overfit = ShowOverfitting()
     selected_features = ['Pclass', 'Sex', 'Age', 'SibSp', 'Parch', 'Fare']
-    figure = overfit.create_plot_dtc(10000, selected_features, "Fehlende Werte entfernen", "gini", 4)
+    figure = overfit.create_plot_dtc(10000, selected_features, "Fehlende Werte entfernen", "gini", 10)
     plt.show()
 
     
