@@ -23,7 +23,7 @@ class LoadData:
         pass
 
     def normal_dataset(self) -> pd.DataFrame:
-        df = pd.read_csv(r"data\Titanic-Dataset.csv")
+        df = pd.read_csv(r"data/Titanic-Dataset.csv")
         return df
     
     def normal_and_random_data(self, num_rows: int) -> pd.DataFrame:
