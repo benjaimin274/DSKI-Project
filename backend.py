@@ -7,25 +7,16 @@ from typing import List, Dict, Union
 
 from sklearn import tree
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, AdaBoostClassifier
+from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import cross_val_score
 import seaborn as sns
 from sklearn.metrics import confusion_matrix
 import shap
-from xgboost import XGBClassifier
 
 # Declare global variable for type hints:
-ModelType = Union[DecisionTreeClassifier, RandomForestClassifier, GradientBoostingClassifier, AdaBoostClassifier]
-EnsembleModelType = Union[RandomForestClassifier, GradientBoostingClassifier, AdaBoostClassifier]
-
-# Abbrevations:
-# DecisionTreeClassifier = dtc
-# RandomForestClassifier = rfc
-# AdaBoostClassifier = gbc 
-
-# Unclear what to do about the randomness factor:
-# random.seed(42), maybe fix it by using it in the init part of the function?!
+ModelType = Union[DecisionTreeClassifier, RandomForestClassifier, AdaBoostClassifier]
+EnsembleModelType = Union[RandomForestClassifier, AdaBoostClassifier]
 
 class LoadData:
     def __init__(self):
@@ -103,11 +94,12 @@ class DataPreparation:
             # Convert categorical data (male/female) to binary:
             mapping = {'female': 0, 'male': 1}
             self.df["Sex"] = self.df["Sex"].map(mapping)
-
+        
+        # Remove the rows with missing values in Embarked (only two exist...)
+        self.df.dropna(subset=["Embarked"], inplace= True)
         # One hot encode "Embarked":
         embarked_one_hot_encoded = pd.get_dummies(self.df["Embarked"], prefix= "Embarked", dtype= int)
-        self.df.drop("Embarked", axis=1, inplace= True)
-
+        self.df.drop("Embarked", axis=1, inplace= True) 
         self.df = pd.concat([self.df, embarked_one_hot_encoded], axis=1)
     
     def available_cols(self) -> List[str]:
@@ -123,7 +115,14 @@ class DataPreparation:
         self.df = self.df[columns_to_keep]
     
     def default_features(self) -> List[str]:
-        return ['Pclass', 'Sex', 'Age', 'SibSp', 'Parch', 'Fare']
+        theory_defaults = ['Pclass', 'Sex', 'Age', 'SibSp', 'Parch', 'Fare']
+        available = self.available_cols()
+
+        reality_defaults = []
+        for feature in theory_defaults:
+            if feature in available:
+                reality_defaults.append(feature)
+        return reality_defaults
 
     # Maybe include this part into the default data preparation... Not sure (could be too much to select.)
     def check_for_missing_values_in_age(self) -> bool:
@@ -131,12 +130,17 @@ class DataPreparation:
             return self.df["Age"].isna().any()
         else:
             return False
+    
+    def num_of_missing_values_in_age(self) -> int:
+        num = self.df['Age'].isnull().sum()
+        return num
 
     def impute_missing_values(self) -> None:
         median_age = self.df["Age"].median()
-        self.df = self.df.fillna(value= median_age)
+        self.df["Age"].fillna(value=median_age, inplace=True) 
+        # Insert the most 
 
-    def drop_missing_values(self) -> None: # <-- Somehow, this removes all the rows when data is generated randomely...
+    def drop_missing_values(self) -> None:
         self.df.dropna(inplace = True, axis= 0)
     
     def X_y_dataset(self):
@@ -202,13 +206,6 @@ class ModelTrainingAndEvaluation:
         clf_ada_boost = AdaBoostClassifier(estimator= weak_learner, n_estimators= n_estimators, learning_rate= learning_rate, random_state=42)
         clf_ada_boost.fit(X_train, y_train)
         return clf_ada_boost
-    
-    ### Maybe implement this one; only if it outperforms the other trees notabely...
-    def train_xgboost(self):
-        X_train, y_train = self.prepared_data["train"]
-        xgboost_model = XGBClassifier(n_estimators=2, max_depth=2, learning_rate=1, objective='binary:logistic')
-        xgboost_model.fit(X_train, y_train)
-        return xgboost_model
     
     #-------------------------Evaluation---------------------------# 
     def evaluate_the_training_data(self, model: ModelType):
@@ -470,7 +467,7 @@ class ModelTuning:
         ax.legend()
         return fig
     
-    def optimal_metric_plot_main_frame(metric_pruning) -> Figure:
+    def optimal_metric_plot_main_frame(self, metric_pruning) -> Figure:
         fig, ax = plt.subplots()
         ax.plot(metric_pruning["metric"], metric_pruning["train_accuracy"], c= "r", marker = "o", label="Training Accuracy")
         ax.plot(metric_pruning["metric"], metric_pruning["val_accuracy"], c= "b", marker = "o", label = "Validation Accuracy")
@@ -540,10 +537,6 @@ class ModelTuning:
         ax.legend()
         return fig
 
-# Implement a loop that increases the number of random samples to see the impact on the tree:
-# Important: Take the selected choises of the user (= missing values, selected features, tree parameters into account...)
-# --> Is a bit tedious to implement
-
 class ShowOverfitting:
     def __init__(self):
         pass
@@ -610,7 +603,9 @@ class ShowOverfitting:
         for num_rows in range(0, user_stop, 500):
             rfc_model = RandomForestClassifier(n_estimators= selected_estimators, criterion= selected_metric, max_depth= selected_depth)
 
-            X_train, y_train, X_test, y_test = self.provide_dataset(num_rows, selected_features, selected_features, selected_missing_method)
+            X_train, y_train, X_test, y_test = self.provide_dataset(num_rows, selected_features, selected_missing_method)
+
+            rfc_model.fit(X_train, y_train)
 
             train_score = rfc_model.score(X_train, y_train)
             test_score = rfc_model.score(X_test, y_test)
@@ -634,8 +629,9 @@ class ShowOverfitting:
             clf_ada_boost = AdaBoostClassifier(estimator= weak_learner, n_estimators= selected_estimators, 
                                                learning_rate= selected_learning_rate, random_state=42)
 
-            X_train, y_train, X_test, y_test = self.provide_dataset(num_rows, selected_features, selected_features, selected_missing_method)
+            X_train, y_train, X_test, y_test = self.provide_dataset(num_rows, selected_features, selected_missing_method)
 
+            clf_ada_boost.fit(X_train, y_train)
             train_score = clf_ada_boost.score(X_train, y_train)
             test_score = clf_ada_boost.score(X_test, y_test)
 

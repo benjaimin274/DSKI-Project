@@ -1,32 +1,6 @@
 import streamlit as st
 from backend import LoadData, DataPreparation, ModelTrainingAndEvaluation, ModelTuning, ShowOverfitting
 
-def initialize_session_states() -> None:
-    """
-    Initialize variables in st.session state to ensure the correct flow of the application.
-    """
-    if "dataset_is_selected" not in st.session_state:
-        st.session_state["dataset_is_selected"] = False
-
-    if "features_confirmed" not in st.session_state:
-        st.session_state["features_confirmed"] = False
-
-    if "selected_model" not in st.session_state:
-        st.session_state["selected_model"] = None
-
-    if "model_trained" not in st.session_state:
-        st.session_state["model_trained"] = False
-
-def user_selected_random_forest():
-    pass
-
-# Tasks: 
-# Use different functions for the layers to keep the code clean and readable
-# Maybe implement caching to keep the app fast?!
-
-# Disable all the interactive elements of the data selection/preparation once the model is trained. 
-
-
 if __name__ == "__main__":
     # Initialize session states:
     if "dataset_is_selected" not in st.session_state:
@@ -47,13 +21,15 @@ if __name__ == "__main__":
     if "activate_additional_feature" not in st.session_state:
         st.session_state["activate_additional_feature"] = False
     
-
+    if "missing_values_exist" not in st.session_state:
+        st.session_state["missing_values_exist"] = False
+    
     # Start application:
     st.title("Entscheidungsbäume Playground")
     st.subheader("Datenauswahl")
 
     #-------------------User selects the dataset--------------------------#
-    selected_dataset = st.selectbox(label = "Wähle die Art der Daten aus, mit denen du experimentiren möchtest.", 
+    selected_dataset = st.selectbox(label = "Wähle die Art der Daten aus, mit denen du experimentieren möchtest.", 
                                     options= ["Original Datensatz", "Zufälliger Datensatz", "Original + Zufällig"], 
                                     index = None, disabled= st.session_state["disable_data_functionalities"])
 
@@ -69,6 +45,9 @@ if __name__ == "__main__":
             # Flow control:
             st.session_state["dataset_is_selected"] = True
         else:
+            # Set this to False to prevent Errors
+            st.session_state["dataset_is_selected"] = False
+
             #------------User can decide how many rows of data he wants-----#
             num_of_rows = st.number_input("Wähle die Anzahl an zufällig generierten Reihen des Datensatzes", 
                                           min_value= 0, value= None, step = 1, disabled= st.session_state["disable_data_functionalities"])
@@ -113,20 +92,22 @@ if __name__ == "__main__":
                 preparation.choose_columns(selected_cols= selected_features)
 
                 # Control the entry to the Model Training section:
-                data_is_ready = True # <-- not sure if this needs to be stored in the session state
+                data_is_ready = True
 
                 # Manage data if it has missing values.
                 if preparation.check_for_missing_values_in_age():
                     data_is_ready = False
 
-                    st.info("Es existieren fehlende Werte in der Spalte Age!")
-                    selected_missing_method = st.selectbox(label= "Wähle eine Methode mit den fehlenden Wetren umzugehen", 
+                    num_of_missing_values = preparation.num_of_missing_values_in_age()
+
+                    st.info(f"Es existieren {num_of_missing_values} fehlende Werte in der Spalte Age!")
+                    selected_missing_method = st.selectbox(label= "Wähle eine Methode mit den fehlenden Werten umzugehen", 
                                                             options= ["Fehlende Werte behalten", "Fehlende Werte entfernen", "Median einsetzen"], 
                                                             index = None, disabled= st.session_state["disable_data_functionalities"])
 
                     if selected_missing_method is not None:
                         if selected_missing_method == "Fehlende Werte behalten":
-                            pass # Just do nothing
+                            st.session_state["missing_values_exist"] = True
                         elif selected_missing_method == "Fehlende Werte entfernen":
                             rows_before = preparation.df.shape[0]
                             preparation.drop_missing_values()
@@ -152,15 +133,15 @@ if __name__ == "__main__":
 
                     # Implement the that the session state variables are reset (= set to false) after pushing the buttons!!!
                     with col1:
-                        if st.button("Normaler Decision Tree"):
+                        if st.button("Normaler Decision Tree", width= "stretch"):
                             st.session_state["selected_model"] = "dtc"
                             st.session_state["model_trained"] = False
                     with col2:
-                        if st.button("Random Forest"):
+                        if st.button("Random Forest", width= "stretch"):
                             st.session_state["selected_model"] = "rfc"
                             st.session_state["model_trained"] = False
-                    with col3:
-                        if st.button("Boosted Tree"):
+                    with col3: 
+                        if st.button("Boosted Tree", width= "stretch", disabled= st.session_state["missing_values_exist"]):
                             st.session_state["selected_model"] = "btc"
                             st.session_state["model_trained"] = False
                     
@@ -171,7 +152,7 @@ if __name__ == "__main__":
 
                         # Initialize the class:
                         training = ModelTrainingAndEvaluation(prepared_data)
-
+                        print()
                         #---------------------Training of the Normal Decision Tree----------------------------#
                         if st.session_state["selected_model"] == "dtc":
 
@@ -179,9 +160,9 @@ if __name__ == "__main__":
                             col1, col2 = st.columns(2)
                             with col1:
                                 options = ["gini", "entropy", "log_loss"]
-                                selected_metric = st.selectbox("Wähle eine Metrik für das Model", options= options, index= 0)
+                                selected_metric = st.selectbox("Wähle ein Splitkriterium für das Modell", options= options, index= 0)
                             with col2:
-                                selected_depth = st.number_input("Wähle die maximale Tiefe (optional)", value= None, step= 1)
+                                selected_depth = st.number_input("Wähle die maximale Tiefe des Modells (optional)", value= None, step= 1)
                             
                             #------------------Pases if the model was trained--------------------------------#
                             if st.button("Model trainieren") or st.session_state["model_trained"]:
@@ -217,7 +198,13 @@ if __name__ == "__main__":
                                 
                                 #---------------Hyperparameter tuning----------------#
                                 with st.expander("Model Hyperparameter Tuning"):
-                                    st.info("Um die Hyperparameter zu tunen, werden die Daten folgendermaßen aufgeilt:")
+                                    information_text = """  
+                                    Um die Hyperparameter zu tunen, werden die Daten folgendermaßen aufgeilt:
+
+                                    - Trainingsdaten: 80% → davon 20% Validierungsdaten  
+                                    - Testdaten: 20%  
+                                    """  
+                                    st.info(information_text)
 
                                     # Initialize the tuning class
                                     prepared_data_with_val = preparation.train_val_test_dataset()
@@ -239,8 +226,6 @@ if __name__ == "__main__":
 
                                 if st.session_state["activate_additional_feature"]:
                                     with st.expander("Performance mit Erhöhung des Anteils der zufälligen Daten"):
-                                        # Is capped at 10000:
-                                        # Don't use a user input -> use a selecter with steps of 500 or so...
                                         stop_range = [i for i in range(0, 10500, 500)]
                                         user_stop = st.selectbox("Wähle die Maximale Anzahl an zusätzlichen zufälligen Daten", 
                                                                  options= stop_range, index= None)
@@ -256,7 +241,7 @@ if __name__ == "__main__":
                             col1, col2 = st.columns(2)
                             with col1:
                                 options = ["gini", "entropy", "log_loss"]
-                                selected_metric = st.selectbox("Wähle eine Metrik für das Model", options= options, index= 0)
+                                selected_metric = st.selectbox("Wähle ein Splitkriterium für das Modell", options= options, index= 0)
                             with col2:
                                 selected_depth = st.number_input("Wähle die maximale Tiefe (optional)", value= 4, step= 1)
                                 selected_estimators = st.number_input("Wähle die Anzahl an Bäumen", value= 100, step= 1)
@@ -279,7 +264,6 @@ if __name__ == "__main__":
                                                                         max_value= selected_estimators - 1,
                                                                         value = None)
                                     if selected_tree_n is not None:
-                                        print(trained_model)
                                         figure = training.visualize_tree_ensemble(trained_model, n = selected_tree_n)
                                         st.pyplot(figure)
                                 
@@ -296,8 +280,131 @@ if __name__ == "__main__":
                                     output_scores = training.k_fold_eval_rfc(X, y, selected_estimators, selected_depth, selected_metric)
                                     st.table(output_scores)
                                 
-                                # Add hyperparameter tuning here
+                                with st.expander("Model Hyperparameter Tuning"):
+                                    information_text = """  
+                                    Um die Hyperparameter zu tunen, werden die Daten folgendermaßen aufgeilt:
 
-                            
+                                    - Trainingsdaten: 80% → davon 20% Validierungsdaten  
+                                    - Testdaten: 20%  
+                                    """  
+                                    st.info(information_text)
+
+                                    # Initialize the tuning class
+                                    prepared_data_with_val = preparation.train_val_test_dataset()
+                                    tuning = ModelTuning(prepared_data_with_val)
+
+                                    selected_hyperparam = st.selectbox(label = "Wähle den Hyperparamter, der getuned werden soll", 
+                                                                        options= ["N Estimators", "Splitting Metric"], 
+                                                                        index = None)
+                                    if selected_hyperparam is not None:
+                                        if selected_hyperparam == "N Estimators":
+                                            st.info("Die anderen Hyperparameter werden vom Training übernommen.")
+                                            fig = tuning.optimal_n_estimators_plot_rfc(metric = selected_metric, depth= selected_depth)
+                                            st.pyplot(fig= fig)
+
+                                        if selected_hyperparam == "Splitting Metric":
+                                            st.info("Die anderen Hyperparameter werden vom Training übernommen.")
+                                            fig = tuning.optimal_metric_plot_rfc(n_estimators= selected_estimators, depth= selected_depth)
+                                            st.pyplot(fig= fig)
+                                
+                                if st.session_state["activate_additional_feature"]:
+                                    with st.expander("Performance mit Erhöhung des Anteils der zufälligen Daten"):
+                                        stop_range = [i for i in range(0, 10500, 500)]
+                                        user_stop = st.selectbox("Wähle die Maximale Anzahl an zusätzlichen zufälligen Daten", 
+                                                                 options= stop_range, index= None)
+                                        if user_stop is not None:
+                                            overfitting = ShowOverfitting()
+                                            fig = overfitting.create_plot_rfc(user_stop, selected_features, selected_missing_method, 
+                                                                              selected_metric, selected_estimators, selected_depth)
+                                            st.pyplot(fig)
+
+                        #------------------------------------Training of the ADA Boost Classifier-------------------------#
                         if st.session_state["selected_model"] == "btc":
-                            st.write("Not yet developed")
+                            st.subheader("Ada Boost Classifier")
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                options = ["gini", "entropy", "log_loss"]
+                                selected_metric = st.selectbox("Wähle ein Splitkriterium für das Modell", options= options, index= 0)
+                                selected_learning_rate = st.number_input("Wähle die Lernrate des Modells", 
+                                                                         min_value= 0.01, max_value= 2.0, value = 0.1)
+                            with col2:
+                                selected_depth = st.number_input("Wähle die maximale Tiefe (optional)", value= 4, step= 1)
+                                selected_estimators = st.number_input("Wähle die Anzahl an Bäumen", value= 50, step= 1)
+                            
+                            if st.button("Modell trainieren") or st.session_state["model_trained"]:
+                                trained_model = training.train_ada_boost(n_estimators= selected_estimators,
+                                                                            learning_rate= selected_learning_rate, 
+                                                                            metric= selected_metric, depth= selected_depth)
+                                st.session_state["model_trained"] = True
+
+                                training_accuracy = training.evaluate_the_training_data(model = trained_model)
+                                test_accuracy = training.evaluate_with_test_dataset(model = trained_model)
+
+                                st.write(f"Die Genauigkeit des Ada Boost Trees mit den Trainings Daten beträgt: {training_accuracy:.3f}")
+                                st.write(f"Die Genauigkeit des Ada Boost Trees mit den Test Daten beträgt: {test_accuracy:.3f}")
+
+                                with st.expander("Visualisiere einzelne Bäume (= weak Learner) aus dem Ensemble"):
+                                    selected_tree_n= st.number_input("Gebe den Index des Baumes an, welchen du visualisieren möchtest", 
+                                                                        min_value= 0, 
+                                                                        max_value= selected_estimators - 1,
+                                                                        value = None)
+                                    if selected_tree_n is not None:
+                                        figure = training.visualize_tree_ensemble(trained_model, n = selected_tree_n)
+                                        st.pyplot(figure)
+
+                                with st.expander("Zeige die zugehörige Heatmap"):
+                                    figure = training.create_heatmap(trained_model)
+                                    st.pyplot(figure)
+
+                                with st.expander("5-Fold Validation"):
+                                    X, y = preparation.X_y_dataset()
+                                    output_scores = training.k_fold_eval_btc(X, y, selected_learning_rate, selected_estimators, selected_depth, selected_metric)
+                                    st.table(output_scores)
+                                
+                                with st.expander("Model Hyperparameter Tuning"):
+                                    information_text = """  
+                                    Um die Hyperparameter zu tunen, werden die Daten folgendermaßen aufgeilt:
+
+                                    - Trainingsdaten: 80% → davon 20% Validierungsdaten  
+                                    - Testdaten: 20%  
+                                    """  
+                                    st.info(information_text)
+
+                                    # Initialize the tuning class
+                                    prepared_data_with_val = preparation.train_val_test_dataset()
+                                    tuning = ModelTuning(prepared_data_with_val)
+
+                                    selected_hyperparam = st.selectbox(label = "Wähle den Hyperparamter, der getuned werden soll", 
+                                                                        options= ["N Estimators", "Learning Rate"], 
+                                                                        index = None)
+                                    if selected_hyperparam is not None:
+                                        if selected_hyperparam == "N Estimators":
+                                            st.info("Die anderen Hyperparameter werden vom Training übernommen.")
+                                            fig = tuning.optimal_n_estimators_plot_gbc(selected_learning_rate, selected_metric, selected_depth)
+                                            st.pyplot(fig= fig)
+
+                                        if selected_hyperparam == "Learning Rate":
+                                            st.info("Die anderen Hyperparameter werden vom Training übernommen.")
+                                            fig = tuning.optimal_learning_rate_plot_gbc(selected_estimators, selected_metric, selected_depth)
+                                            st.pyplot(fig= fig)
+                                
+                                if st.session_state["activate_additional_feature"]:
+                                    with st.expander("Performance mit Erhöhung des Anteils der zufälligen Daten"):
+                                        stop_range = [i for i in range(0, 10500, 500)]
+                                        user_stop = st.selectbox("Wähle die Maximale Anzahl an zusätzlichen zufälligen Daten", 
+                                                                 options= stop_range, index= None)
+                                        if user_stop is not None:
+                                            overfitting = ShowOverfitting()
+                                            fig = overfitting.create_plot_btc(user_stop, selected_features, selected_missing_method, 
+                                                                              selected_learning_rate, selected_metric, selected_estimators, selected_depth)
+                                            st.pyplot(fig)
+                    st.divider()
+
+                    #----------------------Possibility to reset the data configs------------------#
+                    col1, col2, col3 = st.columns(3)
+                    with col2:
+                        if st.button("Daten Auswahl/ Vorbereitung zurücksetzen", width= "stretch"):
+                            for key in st.session_state.keys():  
+                                del st.session_state[key]  
+                            st.rerun()
+    
