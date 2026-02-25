@@ -18,8 +18,8 @@ if __name__ == "__main__":
     if "disable_data_functionalities" not in st.session_state:
         st.session_state["disable_data_functionalities"] = False
     
-    if "activate_additional_feature" not in st.session_state:
-        st.session_state["activate_additional_feature"] = False
+    # Deactivate it always...
+    st.session_state["activate_additional_feature"] = False
     
     if "missing_values_exist" not in st.session_state:
         st.session_state["missing_values_exist"] = False
@@ -141,8 +141,8 @@ if __name__ == "__main__":
                             st.session_state["selected_model"] = "rfc"
                             st.session_state["model_trained"] = False
                     with col3: 
-                        if st.button("Boosted Tree", width= "stretch", disabled= st.session_state["missing_values_exist"]):
-                            st.session_state["selected_model"] = "btc"
+                        if st.button("Gradient Boosted Tree", width= "stretch", disabled= st.session_state["missing_values_exist"]):
+                            st.session_state["selected_model"] = "gbc"
                             st.session_state["model_trained"] = False
                     
                     #------------------------Pases if a model was selected-------------------------#
@@ -152,7 +152,6 @@ if __name__ == "__main__":
 
                         # Initialize the class:
                         training = ModelTrainingAndEvaluation(prepared_data)
-                        print()
                         #---------------------Training of the Normal Decision Tree----------------------------#
                         if st.session_state["selected_model"] == "dtc":
 
@@ -318,30 +317,33 @@ if __name__ == "__main__":
                                                                               selected_metric, selected_estimators, selected_depth)
                                             st.pyplot(fig)
 
-                        #------------------------------------Training of the ADA Boost Classifier-------------------------#
-                        if st.session_state["selected_model"] == "btc":
-                            st.subheader("Ada Boost Classifier")
+                        #------------------------------------Training of the Gradient Boosted Classifier-------------------------#
+                        if st.session_state["selected_model"] == "gbc":
+                            st.subheader("Gradient Boosted Classifier")
                             col1, col2 = st.columns(2)
                             with col1:
-                                options = ["gini", "entropy", "log_loss"]
+                                options = ['friedman_mse', 'squared_error']
                                 selected_metric = st.selectbox("Wähle ein Splitkriterium für das Modell", options= options, index= 0)
+
                                 selected_learning_rate = st.number_input("Wähle die Lernrate des Modells", 
                                                                          min_value= 0.01, max_value= 2.0, value = 0.1)
                             with col2:
                                 selected_depth = st.number_input("Wähle die maximale Tiefe (optional)", value= 4, step= 1)
                                 selected_estimators = st.number_input("Wähle die Anzahl an Bäumen", value= 50, step= 1)
+
+                                loss_options = ['log_loss', 'deviance', 'exponential']
+                                selected_loss = st.selectbox("Wähle eine Loss function", options= loss_options, index= 0)
                             
                             if st.button("Modell trainieren") or st.session_state["model_trained"]:
-                                trained_model = training.train_ada_boost(n_estimators= selected_estimators,
-                                                                            learning_rate= selected_learning_rate, 
-                                                                            metric= selected_metric, depth= selected_depth)
+                                trained_model = training.train_gradient_boost_tree(loss_function= selected_loss, lr= selected_learning_rate, 
+                                                                                   estimators= selected_estimators, metric= selected_metric, depth= selected_depth)
                                 st.session_state["model_trained"] = True
 
                                 training_accuracy = training.evaluate_the_training_data(model = trained_model)
                                 test_accuracy = training.evaluate_with_test_dataset(model = trained_model)
 
-                                st.write(f"Die Genauigkeit des Ada Boost Trees mit den Trainings Daten beträgt: {training_accuracy:.3f}")
-                                st.write(f"Die Genauigkeit des Ada Boost Trees mit den Test Daten beträgt: {test_accuracy:.3f}")
+                                st.write(f"Die Genauigkeit des Gradient Boosted Classifiers mit den Trainings Daten beträgt: {training_accuracy:.3f}")
+                                st.write(f"Die Genauigkeit des Gradient Boosted Classifiers mit den Test Daten beträgt: {test_accuracy:.3f}")
 
                                 with st.expander("Visualisiere einzelne Bäume (= weak Learner) aus dem Ensemble"):
                                     selected_tree_n= st.number_input("Gebe den Index des Baumes an, welchen du visualisieren möchtest", 
@@ -351,6 +353,10 @@ if __name__ == "__main__":
                                     if selected_tree_n is not None:
                                         figure = training.visualize_tree_ensemble(trained_model, n = selected_tree_n)
                                         st.pyplot(figure)
+                                
+                                with st.expander("Shap Analysis (Feature Importance)"):
+                                    figure = training.shap_plot(trained_model)
+                                    st.pyplot(figure)
 
                                 with st.expander("Zeige die zugehörige Heatmap"):
                                     figure = training.create_heatmap(trained_model)
@@ -358,7 +364,7 @@ if __name__ == "__main__":
 
                                 with st.expander("5-Fold Validation"):
                                     X, y = preparation.X_y_dataset()
-                                    output_scores = training.k_fold_eval_btc(X, y, selected_learning_rate, selected_estimators, selected_depth, selected_metric)
+                                    output_scores = training.k_fold_eval_gbc(X, y, selected_loss, selected_learning_rate, selected_estimators, selected_metric, selected_depth)
                                     st.table(output_scores)
                                 
                                 with st.expander("Model Hyperparameter Tuning"):
@@ -380,12 +386,12 @@ if __name__ == "__main__":
                                     if selected_hyperparam is not None:
                                         if selected_hyperparam == "N Estimators":
                                             st.info("Die anderen Hyperparameter werden vom Training übernommen.")
-                                            fig = tuning.optimal_n_estimators_plot_gbc(selected_learning_rate, selected_metric, selected_depth)
+                                            fig = tuning.optimal_n_estimators_plot_gbc(selected_loss, selected_learning_rate, selected_metric, selected_depth)
                                             st.pyplot(fig= fig)
 
                                         if selected_hyperparam == "Learning Rate":
                                             st.info("Die anderen Hyperparameter werden vom Training übernommen.")
-                                            fig = tuning.optimal_learning_rate_plot_gbc(selected_estimators, selected_metric, selected_depth)
+                                            fig = tuning.optimal_learning_rate_plot_gbc(selected_loss, selected_estimators, selected_metric, selected_depth)
                                             st.pyplot(fig= fig)
                                 
                                 if st.session_state["activate_additional_feature"]:
@@ -395,7 +401,7 @@ if __name__ == "__main__":
                                                                  options= stop_range, index= None)
                                         if user_stop is not None:
                                             overfitting = ShowOverfitting()
-                                            fig = overfitting.create_plot_btc(user_stop, selected_features, selected_missing_method, 
+                                            fig = overfitting.create_plot_gbc(user_stop, selected_features, selected_missing_method, selected_loss,
                                                                               selected_learning_rate, selected_metric, selected_estimators, selected_depth)
                                             st.pyplot(fig)
                     st.divider()

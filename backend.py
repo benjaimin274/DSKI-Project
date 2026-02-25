@@ -7,7 +7,7 @@ from typing import List, Dict, Union
 
 from sklearn import tree
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
+from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import cross_val_score
 import seaborn as sns
@@ -15,8 +15,8 @@ from sklearn.metrics import confusion_matrix
 import shap
 
 # Declare global variable for type hints:
-ModelType = Union[DecisionTreeClassifier, RandomForestClassifier, AdaBoostClassifier]
-EnsembleModelType = Union[RandomForestClassifier, AdaBoostClassifier]
+ModelType = Union[DecisionTreeClassifier, RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier]
+EnsembleModelType = Union[RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier]
 
 class LoadData:
     def __init__(self):
@@ -169,8 +169,9 @@ class DataPreparation:
         X_training, X_test, y_training, y_test = train_test_split(
             X, y, test_size=0.2, random_state=42, stratify= y)
 
+        # Maybe increase (to 0.3) the size of the validation data to make it a bit more representative...
         X_train, X_val, y_train, y_val = train_test_split(
-            X_training, y_training, test_size=0.2, random_state=42, stratify= y_training)
+            X_training, y_training, test_size=0.3, random_state=42, stratify= y_training)
         
         prepared_data = {
             "train": [X_train, y_train],
@@ -200,12 +201,12 @@ class ModelTrainingAndEvaluation:
         clf_random_forest.fit(X_train, y_train)
         return clf_random_forest
     
-    def train_ada_boost(self, n_estimators: int, learning_rate: float, metric: str, depth: int = None):
+    def train_gradient_boost_tree(self, loss_function: str, lr: float, estimators: int, metric: str, depth: int):
         X_train, y_train = self.prepared_data["train"]
-        weak_learner = DecisionTreeClassifier(max_depth= depth, criterion= metric, random_state= 42)
-        clf_ada_boost = AdaBoostClassifier(estimator= weak_learner, n_estimators= n_estimators, learning_rate= learning_rate, random_state=42)
-        clf_ada_boost.fit(X_train, y_train)
-        return clf_ada_boost
+        clf_gradient_boost = GradientBoostingClassifier(loss= loss_function, learning_rate= lr, n_estimators= estimators,
+                                                         criterion= metric, max_depth= depth, random_state= 42)
+        clf_gradient_boost.fit(X_train, y_train)
+        return clf_gradient_boost
     
     #-------------------------Evaluation---------------------------# 
     def evaluate_the_training_data(self, model: ModelType):
@@ -243,7 +244,14 @@ class ModelTrainingAndEvaluation:
     
     # Probabely won't be used...
     def visualize_tree_ensemble(self, model: EnsembleModelType, n: int) -> Figure:
-        estimator_n = model.estimators_[n]
+        estimators = model.estimators_
+        # Manage the different dimensions (rfc and dtc vs gbc)
+        try: # gbc
+            estimators.ndim 
+            estimator_n = model.estimators_[n][0]
+        except: # dtc and rfc
+            estimator_n = model.estimators_[n]
+
         X_train, y_train = self.prepared_data["train"]
         X_train: pd.DataFrame
         fig, ax = plt.subplots()
@@ -252,12 +260,15 @@ class ModelTrainingAndEvaluation:
     
     def shap_plot(self, model: ModelType) -> Figure:
         X_train, y_train = self.prepared_data["train"]  
-        explainer = shap.Explainer(model, X_train)  
+        explainer = shap.TreeExplainer(model, X_train)  
         shap_values = explainer(X_train)
 
         # Summary plot for class 1 (positive class); but the chart would be the same for the other class due to the binary classification
         plt.close('all') # close all plots that already exist...
-        shap.summary_plot(shap_values[:, :, 1], X_train, plot_type = "bar")
+        if len(shap_values.shape) == 2:
+            shap.summary_plot(shap_values, X_train, plot_type = "bar")
+        else:
+            shap.summary_plot(shap_values[:, :, 1], X_train, plot_type = "bar")
         fig = plt.gcf()
         return fig
     
@@ -285,10 +296,9 @@ class ModelTrainingAndEvaluation:
         }
         return pd.DataFrame(output)
     
-    def k_fold_eval_btc(self, X, y, learning_rate: float, n_estimators: int, depth: int, metric: str):
-        weak_learner = DecisionTreeClassifier(max_depth= depth, criterion= metric, random_state= 42)
-        clf_ada_boost = AdaBoostClassifier(estimator= weak_learner, n_estimators= n_estimators, learning_rate= learning_rate, random_state=42)
-        scores = cross_val_score(clf_ada_boost, X, y, cv = 5)
+    def k_fold_eval_gbc(self, X, y, loss_function: str, lr: float, estimators: int, metric: str, depth: int):
+        clf_gradient_boost = GradientBoostingClassifier(loss= loss_function, learning_rate= lr, n_estimators= estimators, criterion= metric, max_depth= depth, random_state= 42)
+        scores = cross_val_score(clf_gradient_boost, X, y, cv = 5)
         output = {
             "Bester Wert": [scores.max()],
             "Schlechtester Wert": [scores.min()],
@@ -402,8 +412,8 @@ class ModelTuning:
             pruning["val_accuracy"].append(val_score)
         return pruning
     
-    #---------------Calculate Ada Boost Classifier hyperparameter tuning---------------------#
-    def calculate_optimal_estimators_gbc(self, learning_rate: float, metric: str, depth: int) -> Dict[str, List]:
+    #---------------Calculate Gradient Boosted Classifier hyperparameter tuning---------------------#
+    def calculate_optimal_estimators_gbc(self, loss_function: str, lr: float, metric: str, depth: int) -> Dict[str, List]:
         X_train, y_train = self.prepared_data["train"]
         X_val, y_val = self.prepared_data["val"]
         
@@ -415,19 +425,18 @@ class ModelTuning:
 
         estimator_ranges = [1] + [i for i in range(10, 110, 10)]
         for n in estimator_ranges:
-            weak_learner = DecisionTreeClassifier(max_depth= depth, criterion= metric, random_state= 42)
-            clf_ada_boost = AdaBoostClassifier(estimator= weak_learner, n_estimators= n, learning_rate= learning_rate, random_state=42)
-            clf_ada_boost.fit(X_train, y_train)
+            clf_gradient_boost = GradientBoostingClassifier(loss= loss_function, learning_rate= lr, n_estimators= n, criterion= metric, max_depth= depth)
+            clf_gradient_boost.fit(X_train, y_train)
 
-            train_score = clf_ada_boost.score(X_train, y_train)
-            val_score = clf_ada_boost.score(X_val, y_val)
+            train_score = clf_gradient_boost.score(X_train, y_train)
+            val_score = clf_gradient_boost.score(X_val, y_val)
 
             pruning["n_estimators"].append(n)
             pruning["train_accuracy"].append(train_score)
             pruning["val_accuracy"].append(val_score)
         return pruning
     
-    def calculate_optimal_learning_rate_gbc(self, n_estimators: int, metric: str, depth: int):
+    def calculate_optimal_learning_rate_gbc(self, estimators: int, loss_function: str, metric: str, depth: int):
         X_train, y_train = self.prepared_data["train"]
         X_val, y_val = self.prepared_data["val"]
         
@@ -440,12 +449,12 @@ class ModelTuning:
         learning_rates = [0.01, 0.1, 0.5, 1.0, 1.5]
 
         for lr in learning_rates:
-            weak_learner = DecisionTreeClassifier(max_depth= depth, criterion= metric, random_state= 42)
-            clf_ada_boost = AdaBoostClassifier(estimator= weak_learner, n_estimators= n_estimators, learning_rate= lr, random_state=42)
-            clf_ada_boost.fit(X_train, y_train)
+            clf_gradient_boost = GradientBoostingClassifier(loss= loss_function, learning_rate= lr, n_estimators= estimators, criterion= metric, 
+                                                            max_depth= depth, random_state= 42)
+            clf_gradient_boost.fit(X_train, y_train)
 
-            train_score = clf_ada_boost.score(X_train, y_train)
-            val_score = clf_ada_boost.score(X_val, y_val)
+            train_score = clf_gradient_boost.score(X_train, y_train)
+            val_score = clf_gradient_boost.score(X_val, y_val)
 
             pruning["learning_rate"].append(lr)
             pruning["train_accuracy"].append(train_score)
@@ -517,13 +526,13 @@ class ModelTuning:
         return figure
     
     #-------------gbc final plots--------------#
-    def optimal_n_estimators_plot_gbc(self, learning_rate: float, metric: str, depth: int):
-        n_estimators_pruning = self.calculate_optimal_estimators_gbc(learning_rate, metric, depth)
+    def optimal_n_estimators_plot_gbc(self, loss_function: str, learning_rate: float, metric: str, depth: int):
+        n_estimators_pruning = self.calculate_optimal_estimators_gbc(loss_function, learning_rate, metric, depth)
         figure = self.optimal_estimators_main_frame(n_estimators_pruning)
         return figure
     
-    def optimal_learning_rate_plot_gbc(self, n_estimators: int, metric: str, depth: int):
-        lr_pruning = self.calculate_optimal_learning_rate_gbc(n_estimators, metric, depth)
+    def optimal_learning_rate_plot_gbc(self, loss_function: str, n_estimators: int, metric: str, depth: int):
+        lr_pruning = self.calculate_optimal_learning_rate_gbc(n_estimators, loss_function, metric, depth)
         fig, ax = plt.subplots()
         ax.plot(lr_pruning["learning_rate"], lr_pruning["train_accuracy"], c= "r", marker = "o", label="Training Accuracy")
         ax.plot(lr_pruning["learning_rate"], lr_pruning["val_accuracy"], c= "b", marker = "o", label = "Validation Accuracy")
@@ -616,7 +625,7 @@ class ShowOverfitting:
         return captured_data
     
     def calc_for_gbc(self, user_stop: int, selected_features: List[str], 
-                           selected_missing_method: str, selected_learning_rate: float, selected_metric: str, 
+                           selected_missing_method: str, selected_loss: str, selected_learning_rate: float, selected_metric: str, 
                            selected_estimators: int, selected_depth: int):
         captured_data = {
             "amount_random_data": [],
@@ -625,15 +634,14 @@ class ShowOverfitting:
         }
 
         for num_rows in range(0, user_stop, 500):
-            weak_learner = DecisionTreeClassifier(max_depth= selected_depth, criterion= selected_metric, random_state= 42)
-            clf_ada_boost = AdaBoostClassifier(estimator= weak_learner, n_estimators= selected_estimators, 
-                                               learning_rate= selected_learning_rate, random_state=42)
+            clf_gradient_boost = GradientBoostingClassifier(loss= selected_loss, learning_rate= selected_learning_rate, n_estimators= selected_estimators,
+                                                            criterion= selected_metric, max_depth= selected_depth, random_state= 42)
 
             X_train, y_train, X_test, y_test = self.provide_dataset(num_rows, selected_features, selected_missing_method)
 
-            clf_ada_boost.fit(X_train, y_train)
-            train_score = clf_ada_boost.score(X_train, y_train)
-            test_score = clf_ada_boost.score(X_test, y_test)
+            clf_gradient_boost.fit(X_train, y_train)
+            train_score = clf_gradient_boost.score(X_train, y_train)
+            test_score = clf_gradient_boost.score(X_test, y_test)
 
             captured_data["amount_random_data"].append(num_rows)
             captured_data["train_accuracy"].append(train_score)
@@ -674,11 +682,11 @@ class ShowOverfitting:
         figure = self.plot_main_frame(captured_data)
         return figure
     
-    def create_plot_btc(self, user_stop: int, selected_features: List[str], 
-                        selected_missing_method: str, selected_learning_rate: float, selected_metric: str, 
+    def create_plot_gbc(self, user_stop: int, selected_features: List[str], 
+                        selected_missing_method: str, selected_loss: str, selected_learning_rate: float, selected_metric: str, 
                         selected_estimators: int, selected_depth: int) -> Figure:
         
-        captured_data = self.calc_for_gbc(user_stop, selected_features, selected_missing_method, 
+        captured_data = self.calc_for_gbc(user_stop, selected_features, selected_missing_method, selected_loss,
                                           selected_learning_rate, selected_metric, selected_estimators, selected_depth)
         figure = self.plot_main_frame(captured_data)
         return figure      
