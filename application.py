@@ -180,12 +180,16 @@ if __name__ == "__main__":
                                 with st.expander("Persönlicher Überlebenscheck"):
                                     st.info("Bitte gebe für jedes Feature deine Werte an!")
                                     feature_info = preparation.manage_user_input()
-                                    for i, feature in enumerate(selected_features):
-                                        information = feature_info[feature]
 
-                                        st.number_input(label= information, value= None, key = f"feature_num_{i}")
-                                    
-                                    if st.button("Feature Eingaben bestätigen"):
+                                    with st.form(key ="survival_form_dtc"):
+                                        for i, feature in enumerate(selected_features):
+                                            information = feature_info[feature]
+
+                                            st.number_input(label= information, value= None, key = f"feature_num_{i}")
+                                        
+                                        submit_button = st.form_submit_button("Feature Eingaben bestätigen")
+                                        
+                                    if submit_button:
                                         X_inputs = []
                                         for i in range(0, len(selected_features)):
                                             key_of_element = f"feature_num_{i}"
@@ -198,9 +202,10 @@ if __name__ == "__main__":
                                                 break
                                         if len(X_inputs) == len(selected_features):
                                             st.session_state["user_features_are_ready"] = True
+                                            st.session_state["X_inputs"] = X_inputs
 
                                     if st.session_state["user_features_are_ready"]:
-                                        message = training.predict_with_user_data(X_inputs, trained_model)
+                                        message = training.predict_with_user_data(st.session_state["X_inputs"], trained_model)
                                         st.info(message)
 
                                 #----------------Visualize the Decision Tree------#
@@ -289,12 +294,16 @@ if __name__ == "__main__":
                                 with st.expander("Persönlicher Überlebenscheck"):
                                     st.info("Bitte gebe für jedes Feature deine Werte an!")
                                     feature_info = preparation.manage_user_input()
-                                    for i, feature in enumerate(selected_features):
-                                        information = feature_info[feature]
 
-                                        st.number_input(label= information, value= None, key = f"feature_num_{i}")
-                                    
-                                    if st.button("Feature Eingaben bestätigen"):
+                                    with st.form(key ="survival_form_rfc"):
+                                        for i, feature in enumerate(selected_features):
+                                            information = feature_info[feature]
+
+                                            st.number_input(label= information, value= None, key = f"feature_num_{i}")
+                                        
+                                        submit_button = st.form_submit_button("Feature Eingaben bestätigen")
+                                        
+                                    if submit_button:
                                         X_inputs = []
                                         for i in range(0, len(selected_features)):
                                             key_of_element = f"feature_num_{i}"
@@ -307,9 +316,10 @@ if __name__ == "__main__":
                                                 break
                                         if len(X_inputs) == len(selected_features):
                                             st.session_state["user_features_are_ready"] = True
+                                            st.session_state["X_inputs"] = X_inputs
 
                                     if st.session_state["user_features_are_ready"]:
-                                        message = training.predict_with_user_data(X_inputs, trained_model)
+                                        message = training.predict_with_user_data(st.session_state["X_inputs"], trained_model)
                                         st.info(message)
 
                                 with st.expander("Visualisiere einzelne Bäume aus dem Ensemble"):
@@ -403,12 +413,16 @@ if __name__ == "__main__":
                                 with st.expander("Persönlicher Überlebenscheck"):
                                     st.info("Bitte gebe für jedes Feature deine Werte an!")
                                     feature_info = preparation.manage_user_input()
-                                    for i, feature in enumerate(selected_features):
-                                        information = feature_info[feature]
 
-                                        st.number_input(label= information, value= None, key = f"feature_num_{i}")
-                                    
-                                    if st.button("Feature Eingaben bestätigen"):
+                                    with st.form(key ="survival_form_gbc"):
+                                        for i, feature in enumerate(selected_features):
+                                            information = feature_info[feature]
+
+                                            st.number_input(label= information, value= None, key = f"feature_num_{i}")
+                                        
+                                        submit_button = st.form_submit_button("Feature Eingaben bestätigen")
+                                        
+                                    if submit_button:
                                         X_inputs = []
                                         for i in range(0, len(selected_features)):
                                             key_of_element = f"feature_num_{i}"
@@ -421,9 +435,10 @@ if __name__ == "__main__":
                                                 break
                                         if len(X_inputs) == len(selected_features):
                                             st.session_state["user_features_are_ready"] = True
+                                            st.session_state["X_inputs"] = X_inputs
 
                                     if st.session_state["user_features_are_ready"]:
-                                        message = training.predict_with_user_data(X_inputs, trained_model)
+                                        message = training.predict_with_user_data(st.session_state["X_inputs"], trained_model)
                                         st.info(message)
                                          
                                 with st.expander("Visualisiere einzelne Bäume (= weak Learner) aus dem Ensemble"):
@@ -494,4 +509,6 @@ if __name__ == "__main__":
                             for key in st.session_state.keys():  
                                 del st.session_state[key]  
                             st.rerun()
+
+
     

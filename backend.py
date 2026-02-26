@@ -239,10 +239,10 @@ class ModelTrainingAndEvaluation:
         certainty = model.predict_proba(X)
 
         if predicted_label[0] == 0:
-            rounded_certaintiy = round(certainty[0][0], 3) * 100
+            rounded_certaintiy = round(certainty[0][0] * 100, 2)
             message = f"Das Modell prognostiziert mit einer Wahrscheinlichkeit von {rounded_certaintiy}%, dass du die Katastrophe leider nicht überlebt hättest."
         else:
-            rounded_certaintiy = round(certainty[0][1], 3) * 100
+            rounded_certaintiy = round(certainty[0][1] * 100, 2)
             message = f"Das Modell prognostiziert mit einer Wahrscheinlichkeit von {rounded_certaintiy}%, dass du die Katastrophe glücklicherweise überlebt hättest."
         return message
 
