@@ -179,6 +179,20 @@ class DataPreparation:
             "test": [X_test, y_test]
         }
         return prepared_data
+    
+    def manage_user_input(self) -> Dict[str, str]:
+        feature_explanations = {
+            "Pclass": "Klasse des Passagiers: 1/2/3",
+            "Sex": "Geschlecht des Passagiers (binär): weiblich -> 0; männlich -> 1",
+            "Age": "Alter des Passagiers (ganzzahlig)",
+            "SibSp": "Anzahl an Geschwistern oder Ehepartnern (ganzzahlig)",
+            "Parch": "Anzahl an Eltern oder Kinder an Bord (ganzzahlig)",
+            "Fare": "Kosten des Tickets: Durchschnittlich 32 $",
+            "Embarked_C": "Eingestiegen in Cherbourg (binär): Nein -> 0; Ja -> 1",
+            "Embarked_Q": "Eingestiegen in Queenstown (binär): Nein -> 0; Ja -> 1",
+            "Embarked_S": "Eingestiegen in Southampton (binär): Nein -> 0; Ja -> 1"
+        }
+        return feature_explanations
 
 class ModelTrainingAndEvaluation:
     def __init__(self, prepared_data: Dict):
@@ -219,6 +233,19 @@ class ModelTrainingAndEvaluation:
         accuracy = model.score(X_test, y_test)
         return accuracy
     
+    def predict_with_user_data(self, X: List, model: ModelType) -> str:
+        X = np.array(X).reshape(1, -1)
+        predicted_label = model.predict(X)
+        certainty = model.predict_proba(X)
+
+        if predicted_label[0] == 0:
+            rounded_certaintiy = round(certainty[0][0], 3) * 100
+            message = f"Das Modell prognostiziert mit einer Wahrscheinlichkeit von {rounded_certaintiy}%, dass du die Katastrophe leider nicht überlebt hättest."
+        else:
+            rounded_certaintiy = round(certainty[0][1], 3) * 100
+            message = f"Das Modell prognostiziert mit einer Wahrscheinlichkeit von {rounded_certaintiy}%, dass du die Katastrophe glücklicherweise überlebt hättest."
+        return message
+
     def create_heatmap(self, model: ModelType) -> Figure:
         X_test, y_test = self.prepared_data["test"]
         y_pred = model.predict(X_test)
@@ -693,14 +720,16 @@ class ShowOverfitting:
 
 if __name__ == "__main__":
     pass
-    # load = LoadData()
+    load = LoadData()
+    df = load.normal_dataset()
+    print(df.describe())
     # org_and_random = load.normal_and_random_data(1000)
     # print(org_and_random.shape)
     # print(org_and_random.describe())
 
-    overfit = ShowOverfitting()
-    selected_features = ['Pclass', 'Sex', 'Age', 'SibSp', 'Parch', 'Fare']
-    figure = overfit.create_plot_dtc(10000, selected_features, "Fehlende Werte entfernen", "gini", 10)
-    plt.show()
+    # overfit = ShowOverfitting()
+    # selected_features = ['Pclass', 'Sex', 'Age', 'SibSp', 'Parch', 'Fare']
+    # figure = overfit.create_plot_dtc(10000, selected_features, "Fehlende Werte entfernen", "gini", 10)
+    # plt.show()
 
     
