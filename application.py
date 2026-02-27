@@ -207,6 +207,7 @@ if __name__ == "__main__":
                                     if st.session_state["user_features_are_ready"]:
                                         message = training.predict_with_user_data(st.session_state["X_inputs"], trained_model)
                                         st.info(message)
+                                        st.session_state["user_features_are_ready"] = False # Reset the feature input
 
                                 #----------------Visualize the Decision Tree------#
                                 with st.expander("Zeige den Entscheidungsbaum"):
@@ -321,6 +322,7 @@ if __name__ == "__main__":
                                     if st.session_state["user_features_are_ready"]:
                                         message = training.predict_with_user_data(st.session_state["X_inputs"], trained_model)
                                         st.info(message)
+                                        st.session_state["user_features_are_ready"] = False # Reset the feature input
 
                                 with st.expander("Visualisiere einzelne Bäume aus dem Ensemble"):
                                     selected_tree_n= st.number_input("Gebe den Index des Baumes an, welchen du visualisieren möchtest", 
@@ -440,6 +442,7 @@ if __name__ == "__main__":
                                     if st.session_state["user_features_are_ready"]:
                                         message = training.predict_with_user_data(st.session_state["X_inputs"], trained_model)
                                         st.info(message)
+                                        st.session_state["user_features_are_ready"] = False # Reset the feature input
                                          
                                 with st.expander("Visualisiere einzelne Bäume (= weak Learner) aus dem Ensemble"):
                                     selected_tree_n= st.number_input("Gebe den Index des Baumes an, welchen du visualisieren möchtest", 
