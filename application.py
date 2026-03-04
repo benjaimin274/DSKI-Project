@@ -18,9 +18,6 @@ if __name__ == "__main__":
     if "disable_data_functionalities" not in st.session_state:
         st.session_state["disable_data_functionalities"] = False
     
-    # Deactivate it always...
-    st.session_state["activate_additional_feature"] = False
-    
     if "missing_values_exist" not in st.session_state:
         st.session_state["missing_values_exist"] = False
     
@@ -59,7 +56,6 @@ if __name__ == "__main__":
             if num_of_rows is not None:
                 if selected_dataset == "Original + Zufällig":
                     df = data_selection.normal_and_random_data(num_rows= num_of_rows)
-                    st.session_state["activate_additional_feature"] = True # <-- activates a special feature after model training
 
                 if selected_dataset == "Zufälliger Datensatz":
                     df = data_selection.random_data(num_rows= num_of_rows)
@@ -258,16 +254,15 @@ if __name__ == "__main__":
                                             fig = tuning.optimal_metric_plot_dtc(depth = selected_depth)
                                             st.pyplot(fig= fig)
 
-                                if st.session_state["activate_additional_feature"]:
-                                    with st.expander("Performance mit Erhöhung des Anteils der zufälligen Daten"):
-                                        stop_range = [i for i in range(0, 10500, 500)]
-                                        user_stop = st.selectbox("Wähle die Maximale Anzahl an zusätzlichen zufälligen Daten", 
-                                                                 options= stop_range, index= None)
-                                        if user_stop is not None:
-                                            overfitting = ShowOverfitting()
-                                            fig = overfitting.create_plot_dtc(user_stop, selected_features, selected_missing_method, 
-                                                                              selected_metric, selected_depth)
-                                            st.pyplot(fig)
+                                with st.expander("Performance mit Erhöhung des Anteils der zufälligen Daten"):
+                                    stop_range = [i for i in range(0, 10500, 500)]
+                                    user_stop = st.selectbox("Wähle die Maximale Anzahl an zusätzlichen zufälligen Daten", 
+                                                                options= stop_range, index= None)
+                                    if user_stop is not None:
+                                        overfitting = ShowOverfitting()
+                                        fig = overfitting.create_plot_dtc(user_stop, selected_features, selected_missing_method, 
+                                                                            selected_metric, selected_depth)
+                                        st.pyplot(fig)
                         
                         #------------------------Training of the Random Forest-----------------------------#
                         if st.session_state["selected_model"] == "rfc":
@@ -373,16 +368,16 @@ if __name__ == "__main__":
                                             fig = tuning.optimal_metric_plot_rfc(n_estimators= selected_estimators, depth= selected_depth)
                                             st.pyplot(fig= fig)
                                 
-                                if st.session_state["activate_additional_feature"]:
-                                    with st.expander("Performance mit Erhöhung des Anteils der zufälligen Daten"):
-                                        stop_range = [i for i in range(0, 10500, 500)]
-                                        user_stop = st.selectbox("Wähle die Maximale Anzahl an zusätzlichen zufälligen Daten", 
-                                                                 options= stop_range, index= None)
-                                        if user_stop is not None:
-                                            overfitting = ShowOverfitting()
-                                            fig = overfitting.create_plot_rfc(user_stop, selected_features, selected_missing_method, 
-                                                                              selected_metric, selected_estimators, selected_depth)
-                                            st.pyplot(fig)
+                                
+                                with st.expander("Performance mit Erhöhung des Anteils der zufälligen Daten"):
+                                    stop_range = [i for i in range(0, 10500, 500)]
+                                    user_stop = st.selectbox("Wähle die Maximale Anzahl an zusätzlichen zufälligen Daten", 
+                                                                options= stop_range, index= None)
+                                    if user_stop is not None:
+                                        overfitting = ShowOverfitting()
+                                        fig = overfitting.create_plot_rfc(user_stop, selected_features, selected_missing_method, 
+                                                                            selected_metric, selected_estimators, selected_depth)
+                                        st.pyplot(fig)
 
                         #------------------------------------Training of the Gradient Boosted Classifier-------------------------#
                         if st.session_state["selected_model"] == "gbc":
@@ -493,16 +488,16 @@ if __name__ == "__main__":
                                             fig = tuning.optimal_learning_rate_plot_gbc(selected_loss, selected_estimators, selected_metric, selected_depth)
                                             st.pyplot(fig= fig)
                                 
-                                if st.session_state["activate_additional_feature"]:
-                                    with st.expander("Performance mit Erhöhung des Anteils der zufälligen Daten"):
-                                        stop_range = [i for i in range(0, 10500, 500)]
-                                        user_stop = st.selectbox("Wähle die Maximale Anzahl an zusätzlichen zufälligen Daten", 
-                                                                 options= stop_range, index= None)
-                                        if user_stop is not None:
-                                            overfitting = ShowOverfitting()
-                                            fig = overfitting.create_plot_gbc(user_stop, selected_features, selected_missing_method, selected_loss,
-                                                                              selected_learning_rate, selected_metric, selected_estimators, selected_depth)
-                                            st.pyplot(fig)
+                                
+                                with st.expander("Performance mit Erhöhung des Anteils der zufälligen Daten"):
+                                    stop_range = [i for i in range(0, 10500, 500)]
+                                    user_stop = st.selectbox("Wähle die Maximale Anzahl an zusätzlichen zufälligen Daten", 
+                                                                options= stop_range, index= None)
+                                    if user_stop is not None:
+                                        overfitting = ShowOverfitting()
+                                        fig = overfitting.create_plot_gbc(user_stop, selected_features, selected_missing_method, selected_loss,
+                                                                            selected_learning_rate, selected_metric, selected_estimators, selected_depth)
+                                        st.pyplot(fig)
                     st.divider()
 
                     #----------------------Possibility to reset the data configs------------------#

@@ -681,6 +681,7 @@ class ShowOverfitting:
         ax.scatter(x = captured_data["amount_random_data"], y = captured_data["test_accuracy"], c= "b", label = "Test Accuracy")
         ax.grid(visible= True)
         ax.set_xticks(range(0, captured_data["amount_random_data"][-1] + 500, 500))
+        ax.tick_params(axis='x', rotation=90)
 
         # Make the plot more descriptive:
         ax.set_xlabel("Additional Random Data")  
