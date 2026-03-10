@@ -115,7 +115,7 @@ class DataPreparation:
         self.df = self.df[columns_to_keep]
     
     def default_features(self) -> List[str]:
-        theory_defaults = ['Pclass', 'Sex', 'Age', 'SibSp', 'Parch', 'Fare']
+        theory_defaults = ['Pclass', 'Sex', 'Age']
         available = self.available_cols()
 
         reality_defaults = []
