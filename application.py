@@ -393,7 +393,7 @@ if __name__ == "__main__":
                                 selected_depth = st.number_input("Wähle die maximale Tiefe (optional)", value= 4, step= 1)
                                 selected_estimators = st.number_input("Wähle die Anzahl an Bäumen", value= 50, step= 1)
 
-                                loss_options = ['log_loss', 'deviance', 'exponential']
+                                loss_options = ['log_loss', 'exponential']
                                 selected_loss = st.selectbox("Wähle eine Loss function", options= loss_options, index= 0)
                             
                             if st.button("Modell trainieren") or st.session_state["model_trained"]:
